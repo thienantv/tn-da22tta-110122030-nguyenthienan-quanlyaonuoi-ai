@@ -1,0 +1,87 @@
+/* Design tokens and small utility helpers */
+:root {
+  /* Colors */
+  --color-primary: #0ea5e9;
+  --color-secondary: #0284c7;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-muted: #6b7280;
+  --color-bg: #f8fafc;
+
+  /* Typography */
+  --font-sans: Inter, 'Segoe UI', Roboto, system-ui, -apple-system, 'Helvetica Neue', Arial;
+  --font-size-base: 16px;
+  --font-size-sm: 14px;
+  --font-size-lg: 18px;
+  --line-height-base: 1.5;
+
+  /* Spacing scale */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Radii & shadows */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --elevation-sm: 0 6px 18px rgba(15, 23, 42, 0.06);
+
+  /* Button system */
+  --btn-padding-y: 10px;
+  --btn-padding-x: 20px;
+  --btn-radius: 8px;
+  --btn-font-size: 1rem;
+  --btn-font-weight: 500;
+  --btn-gap: 8px;
+  --btn-transition: background-color 0.2s ease, border-color 0.2s ease,
+    color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  --btn-hover-transform: translateY(-1px);
+
+  --btn-sm-padding-y: 6px;
+  --btn-sm-padding-x: 12px;
+  --btn-sm-font-size: 0.875rem;
+  --btn-sm-radius: 8px;
+
+  --btn-icon-size: 32px;
+  --btn-icon-radius: 8px;
+}
+
+/* Spacing utility classes (small set to start) */
+.u-mb-xs { margin-bottom: var(--space-xs) !important; }
+.u-mb-sm { margin-bottom: var(--space-sm) !important; }
+.u-mb { margin-bottom: var(--space-md) !important; }
+.u-mb-lg { margin-bottom: var(--space-lg) !important; }
+.u-mt { margin-top: var(--space-md) !important; }
+.u-p { padding: var(--space-md) !important; }
+.u-p-sm { padding: var(--space-sm) !important; }
+
+/* Typography helpers */
+.t-small { font-size: var(--font-size-sm); }
+.t-base { font-size: var(--font-size-base); }
+.t-large { font-size: var(--font-size-lg); }
+.t-muted { color: var(--color-muted); }
+
+/* Button helper */
+.btn-system {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--btn-gap);
+  padding: var(--btn-sm-padding-y) var(--btn-sm-padding-x);
+  border-radius: var(--btn-radius);
+  border: none;
+  background: var(--color-primary);
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Make it easy to hide rating on shared DashboardCard */
+.no-rating .dashboard-card_rating { display: none !important; }
+
+/* Responsive utility */
+@media (max-width: 768px) {
+  .u-grid-2-sm { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

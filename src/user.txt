@@ -1,0 +1,5 @@
+Owner: thienantv - 123456
+Technician: kysutv01 - kysutv01
+            kysutv02 - kysutv02
+Worker: nhanvientv01 - nhanvientv01
+        nhanvientv02 - nhanvientv02
