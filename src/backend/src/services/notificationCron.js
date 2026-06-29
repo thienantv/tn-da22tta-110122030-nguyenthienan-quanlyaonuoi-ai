@@ -66,7 +66,7 @@ const notificationCron = {
     // =========================================================================
     // ⏰ CRON 2: BẢN TIN SÁNG CHO CÔNG NHÂN (Chạy vào 03:00 sáng hằng ngày)
     // =========================================================================
-    cron.schedule('0 3 * * *', async () => {
+    cron.schedule('0 6 * * *', async () => {
       console.log("🤖 [CRON - DIGEST] Đang chuẩn bị bản tin công việc sáng cho công nhân...");
       try {
         const query = `

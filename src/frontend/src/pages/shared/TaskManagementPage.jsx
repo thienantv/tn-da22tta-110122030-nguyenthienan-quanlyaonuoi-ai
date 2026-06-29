@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { showToast } from '../../utils/toast';
 import { taskService, productService, pondService, userService } from '../../services/api';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { useAuth } from '../../context/AuthContext';
 
 const STATUS_OPTIONS = [
     { value: 'ALL', label: 'Tất cả trạng thái' },
@@ -225,6 +226,7 @@ const TaskManagementPage = ({
     pageTitle = 'Quản lý công việc',
     pageSubtitle = 'Phân phối Kịch bản SOP & Tiến độ thực địa'
 }) => {
+    const { user } = useAuth();
     const [tasks, setTasks] = useState([]);
     const [ponds, setPonds] = useState([]);
     const [products, setProducts] = useState([]);
@@ -255,8 +257,8 @@ const TaskManagementPage = ({
     const [form, setForm] = useState(initialForm);
     const [editForm, setEditForm] = useState({ task_id: '', type_id: '', task_title: '', description: '', start_date: '', due_date: '', assigned_workers: [], materials: [] });
 
-    const isProductRequired = useMemo(() => ['1', '2', '3'].includes(String(form.task_type)), [form.task_type]);
-    const isEditProductRequired = useMemo(() => ['1', '2', '3'].includes(String(editForm?.type_id || editForm?.task_type)), [editForm?.type_id, editForm?.task_type]);
+    const isProductRequired = useMemo(() => ['1', '2', '3', '4', '7'].includes(String(form.task_type)), [form.task_type]);
+    const isEditProductRequired = useMemo(() => ['1', '2', '3', '4', '7'].includes(String(editForm?.type_id || editForm?.task_type)), [editForm?.type_id, editForm?.task_type]);
 
     const getFilteredProducts = useCallback((typeId) => {
         if (!typeId) return products;
@@ -264,8 +266,23 @@ const TaskManagementPage = ({
 
         return products.filter(p => {
             const catCode = String(p.category_code || '').toUpperCase();
-            if (type === '2') return ['CAT-THUC-AN', 'CAT-THUOC', 'CAT-KHOANG-VITAMIN', 'CAT-VI-SINH'].includes(catCode);
-            if (type === '1' || type === '3') return ['CAT-HOA-CHAT', 'CAT-VI-SINH', 'CAT-KHOANG-VITAMIN'].includes(catCode);
+            
+            // 1. CẢI TẠO ĐẦU VỤ: Tuyệt đối chỉ dùng Hóa chất diệt khuẩn/xử lý và Vi sinh gây màu
+            if (type === '1') {
+                return ['CAT-HOA-CHAT', 'CAT-VI-SINH'].includes(catCode);
+            }
+            
+            // 2. CHO ĂN: Cám, Thuốc trị bệnh, Khoáng/Vitamin trộn áo cám, Vi sinh đường ruột
+            if (type === '2') {
+                return ['CAT-THUC-AN', 'CAT-THUOC', 'CAT-KHOANG-VITAMIN', 'CAT-VI-SINH'].includes(catCode);
+            }
+
+            // 3. XỬ LÝ NƯỚC & 4. THAY NƯỚC XI PHONG: Tạt vi sinh đáy, hóa chất cấp cứu (Yucca), Khoáng tạt chống sốc
+            if (type === '3' || type === '4') {
+                return ['CAT-HOA-CHAT', 'CAT-VI-SINH', 'CAT-KHOANG-VITAMIN'].includes(catCode);
+            }
+
+            // 7. CÔNG VIỆC KHÁC: Cho phép chọn tất cả các danh mục (Bao gồm cả Dụng cụ/Thiết bị)
             return true;
         });
     }, [products]);
@@ -339,11 +356,17 @@ const TaskManagementPage = ({
 
     const handleCreateTask = async () => {
         try {
-            await taskService.createTasks(form);
+            await taskService.createTask(form);
             showToast({ title: 'Giao việc thành công!', type: 'success' });
             setIsCreateOpen(false);
+            
+            setForm(initialForm); 
+            
             fetchTasks();
-        } catch (error) { showToast({ title: 'Lỗi giao việc', type: 'error' }); }
+        } catch (error) { 
+            const errorMsg = error?.response?.data?.message || error?.message || 'Lỗi giao việc';
+            showToast({ title: errorMsg, type: 'error' }); 
+        }
     };
 
     const handleUpdateTask = async () => {
@@ -352,7 +375,10 @@ const TaskManagementPage = ({
             showToast({ title: 'Cập nhật kế hoạch thành công!', type: 'success' });
             setIsEditOpen(false);
             fetchTasks();
-        } catch (error) { showToast({ title: 'Lỗi cập nhật', type: 'error' }); }
+        } catch (error) { 
+            const errorMsg = error?.response?.data?.message || error?.message || 'Lỗi cập nhật';
+            showToast({ title: errorMsg, type: 'error' }); 
+        }
     };
 
     const handleCompleteTask = async (taskId) => {
@@ -588,7 +614,7 @@ const TaskManagementPage = ({
 
                 {!readOnly && (
                     <div className="relative z-10 w-full md:w-auto">
-                        <button onClick={() => setIsCreateOpen(true)} className="w-full md:w-auto px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2">
+                        <button onClick={() => { setForm(initialForm); setIsCreateOpen(true); }} className="w-full md:w-auto px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2">
                             <span className="text-xl leading-none">+</span> Giao việc (Ma trận)
                         </button>
                     </div>
@@ -916,13 +942,42 @@ const TaskManagementPage = ({
                                 </div>
                             )}
 
-                            {canComplete && ['IN_PROGRESS', 'OVERDUE', 'PENDING'].includes(normalize(selectedTask.status)) && (
-                                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 col-span-2 mt-2">
-                                    <label className={`text-sm font-bold block mb-2 ${getComputedStatus(selectedTask) === 'OVERDUE' ? 'text-rose-600' : 'text-slate-800'}`}>📝 Báo cáo thực địa {getComputedStatus(selectedTask) === 'OVERDUE' && '(Bắt buộc giải trình)'}</label>
-                                    <textarea className="w-full p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-100 outline-none text-sm resize-none mb-3" rows="3" placeholder="Nhập ghi chú kết quả công việc..." value={reportNote} onChange={e => setReportNote(e.target.value)} />
-                                    <button onClick={() => handleCompleteTask(selectedTask.task_id)} className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-colors shadow-md">✓ XÁC NHẬN HOÀN THÀNH</button>
-                                </div>
-                            )}
+                            {/* 🌟 NÂNG CẤP: KHÔNG CHO PHÉP CÔNG NHÂN XÁC NHẬN 2 LẦN */}
+                            {canComplete && ['IN_PROGRESS', 'OVERDUE', 'PENDING'].includes(normalize(selectedTask.status)) && (() => {
+                                const currentUserId = user?.user_id || user?.id;
+                                const currentWorker = selectedTask.assigned_workers_list?.find(w => String(w.worker_id) === String(currentUserId));
+                                const isWorkerDone = currentWorker?.worker_status === 'DONE';
+                                const allWorkersDone = selectedTask.assigned_workers_list?.length > 0 && selectedTask.assigned_workers_list.every(w => w.worker_status === 'DONE');
+
+                                // 1. Nếu là Công nhân và ĐÃ BẤM XÁC NHẬN RỒI -> Hiện thông báo thành công, khóa nút
+                                if (mode === 'worker' && isWorkerDone) {
+                                    return (
+                                        <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-200 col-span-2 mt-2 flex items-center gap-4 animate-in fade-in zoom-in-95">
+                                            <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 text-2xl shrink-0 shadow-inner">🎉</div>
+                                            <div>
+                                                <h4 className="text-emerald-800 font-extrabold text-base">Bạn đã xác nhận hoàn thành!</h4>
+                                                <p className="text-emerald-600 text-sm font-medium mt-0.5">Phần việc của bạn đã được ghi nhận. Hệ thống đang chờ các nhân sự khác hoàn tất để kết thúc Kế hoạch này.</p>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                // 2. Nếu là Kỹ sư và tất cả nhân công đều đã xong -> Không hiện nút bắt ép hoàn thành nữa
+                                if (mode !== 'worker' && allWorkersDone) return null;
+
+                                // 3. Nếu chưa xong -> Hiện form báo cáo bình thường
+                                return (
+                                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 col-span-2 mt-2">
+                                        <label className={`text-sm font-bold block mb-2 ${getComputedStatus(selectedTask) === 'OVERDUE' ? 'text-rose-600' : 'text-slate-800'}`}>
+                                            📝 Báo cáo thực địa {getComputedStatus(selectedTask) === 'OVERDUE' && '(Bắt buộc giải trình)'}
+                                        </label>
+                                        <textarea className="w-full p-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-100 outline-none text-sm resize-none mb-3" rows="3" placeholder="Nhập ghi chú kết quả công việc..." value={reportNote} onChange={e => setReportNote(e.target.value)} />
+                                        <button onClick={() => handleCompleteTask(selectedTask.task_id)} className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-colors shadow-md">
+                                            ✓ XÁC NHẬN HOÀN THÀNH
+                                        </button>
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         <div className="mt-4 pt-4 border-t border-slate-100 shrink-0">
@@ -990,14 +1045,13 @@ const TaskManagementPage = ({
                                                 <tbody className="divide-y divide-slate-100">
                                                     {workers.map(w => {
                                                         const wId = Number(w.worker_id || w.user_id);
-                                                        const isBusy = normalize(w.work_status) === 'BUSY';
                                                         return (
                                                             <tr key={wId} className={`transition-colors hover:bg-slate-50/80`}>
                                                                 <td className="px-4 py-3 border-r border-slate-200 text-left bg-white sticky left-0 z-0">
                                                                     <strong className="block text-slate-800 text-sm">{w.full_name}</strong>
-                                                                    {/* 🌟 NÂNG CẤP: Chuyển màu nhãn báo hiệu nhân công có lịch bận nhưng không khóa checkbox */}
-                                                                    <span className={`text-[10px] font-bold uppercase mt-1 inline-block px-1.5 py-0.5 rounded ${isBusy ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                                                                        {isBusy ? '● Có lịch bận' : '● Rảnh rỗi'}
+                                                                    {/* 🌟 ĐÃ GỠ BỎ LOGIC CÓ LỊCH BẬN - Chỉ để lại một nhãn mặc định cho đẹp UI */}
+                                                                    <span className="text-[10px] font-bold uppercase mt-1 inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 shadow-sm">
+                                                                        ● Nhân sự
                                                                     </span>
                                                                 </td>
                                                                 {matrixPonds.map(p => {
@@ -1007,7 +1061,6 @@ const TaskManagementPage = ({
                                                                     return (
                                                                         <td key={pId} className="px-3 py-3 align-middle text-center">
                                                                             <div className="flex items-center justify-center h-full">
-                                                                                {/* 🌟 NÂNG CẤP: Gỡ bỏ thuộc tính disabled để cho phép chọn thoải mái nhiều ao */}
                                                                                 <input type="checkbox" checked={isChecked} onChange={() => toggleAssignment(wId, pId)} className="w-4 h-4 cursor-pointer text-emerald-500 focus:ring-emerald-500 rounded border-slate-300" />
                                                                             </div>
                                                                         </td>
@@ -1032,7 +1085,7 @@ const TaskManagementPage = ({
                                 {isProductRequired && (
                                     <div className="flex flex-col gap-4 bg-sky-50/50 p-4 rounded-xl border border-sky-100">
                                         <div className="flex justify-between items-center">
-                                            <label className="text-sm font-bold text-sky-800">Vật tư chỉ định xuất kho (Trộn cám/thuốc)</label>
+                                            <label className="text-sm font-bold text-sky-800">Vật tư chỉ định xuất kho</label>
                                             <button type="button" onClick={() => handleAddMaterial(false)} className="text-xs font-bold text-sky-600 bg-sky-100 hover:bg-sky-200 px-3 py-1.5 rounded-lg transition-colors shadow-sm flex items-center gap-1 active:scale-95">
                                                 <span className="text-base leading-none">+</span> Thêm vật tư
                                             </button>

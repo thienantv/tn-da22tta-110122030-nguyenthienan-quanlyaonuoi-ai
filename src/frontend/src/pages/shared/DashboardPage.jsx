@@ -470,19 +470,37 @@ const DashboardPage = ({ roleLabel = 'Owner' }) => {
               </div>
               
               <div className="flex flex-col gap-3 flex-1 overflow-y-auto pr-2 scrollbar-hide">
-                {tasks.filter(t => getComputedTaskStatus(t) === 'OVERDUE').map((t, idx) => (
-                  <div key={idx} className="p-4 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 transition-colors shadow-sm">
-                    <strong className="block text-slate-800 text-sm mb-1">{t.task_title}</strong>
-                    <div className="text-xs font-bold text-rose-600">Trễ hạn: {formatDateTime(t.due_date)}</div>
-                  </div>
-                ))}
-                
-                {myOverdueTasks === 0 && (
-                  <div className="flex flex-col items-center justify-center h-full text-emerald-500 p-6 bg-emerald-50 rounded-2xl border border-emerald-100">
-                    <span className="text-4xl mb-3">🎉</span>
-                    <strong className="text-center text-emerald-700">Tuyệt vời! Bạn không có công việc nào bị trễ hạn.</strong>
-                  </div>
-                )}
+                {(() => {
+                  // Lọc ra các công việc trễ hạn
+                  const overdueList = tasks.filter(t => getComputedTaskStatus(t) === 'OVERDUE');
+                  
+                  return (
+                    <>
+                      {/* Chỉ hiển thị tối đa 5 công việc đầu tiên */}
+                      {overdueList.slice(0, 5).map((t, idx) => (
+                        <div key={idx} className="p-4 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 transition-colors shadow-sm">
+                          <strong className="block text-slate-800 text-sm mb-1">{t.task_title}</strong>
+                          <div className="text-xs font-bold text-rose-600">Trễ hạn: {formatDateTime(t.due_date)}</div>
+                        </div>
+                      ))}
+
+                      {/* Hiển thị dòng "+X việc khác" nếu danh sách dài hơn 5 */}
+                      {overdueList.length > 5 && (
+                        <div className="text-center text-xs text-rose-500 font-bold mt-1 mb-2">
+                          + {overdueList.length - 5} công việc trễ hạn khác (Xem ở mục Quản lý)
+                        </div>
+                      )}
+                      
+                      {/* Giao diện chúc mừng khi không có việc trễ hạn */}
+                      {overdueList.length === 0 && (
+                        <div className="flex flex-col items-center justify-center h-full text-emerald-500 p-6 bg-emerald-50 rounded-2xl border border-emerald-100">
+                          <span className="text-4xl mb-3">🎉</span>
+                          <strong className="text-center text-emerald-700">Tuyệt vời! Bạn không có công việc nào bị trễ hạn.</strong>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </>
           )}

@@ -63,8 +63,9 @@ const Sparkline = ({ color }) => (
 const PondsPage = ({ roleLabel = 'Owner' }) => {
   const { user } = useAuth();
 
-  const isOwner = roleLabel === 'Owner';
-  const isTechnician = roleLabel === 'Technician';
+  const role = normalizeUpper(roleLabel);
+  const isOwner = role === 'OWNER';
+  const isTechnician = role === 'TECHNICIAN';
 
   const [ponds, setPonds] = useState([]);
   const [technicians, setTechnicians] = useState([]);
@@ -253,10 +254,13 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
 
   const canConfirmRenovation = (pond) => {
     const st = normalizeUpper(pond.status);
-    return (st === 'DANG_CAI_TAO' || st === 'DANG_XU_LY') &&
-      normalizeUpper(pond.usage_status) === 'HOAT_DONG' &&
-      Number(pond.assigned_staff) === Number(user?.user_id) &&
-      !pond.renovation_completed_at;
+    const isCorrectStatus = (st === 'DANG_CAI_TAO' || st === 'DANG_XU_LY');
+    const isHoatDong = normalizeUpper(pond.usage_status) === 'HOAT_DONG';
+    
+    // Chủ trại được quyền duyệt tất cả. Kỹ sư chỉ được duyệt ao do mình phụ trách
+    const hasPermission = isOwner || (isTechnician && Number(pond.assigned_staff) === Number(user?.user_id));
+
+    return isCorrectStatus && isHoatDong && hasPermission;
   };
 
   const handleConfirmRenovation = async (pond) => {
@@ -550,7 +554,7 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
                           </>
                         )}
 
-                        {isTechnician && canConfirmRenovation(pond) && (
+                        {canConfirmRenovation(pond) && (
                           <button onClick={() => handleConfirmRenovation(pond)} className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 transition-all shadow-sm" title="Xác nhận xong cải tạo">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
                           </button>
