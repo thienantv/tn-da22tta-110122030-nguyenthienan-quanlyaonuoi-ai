@@ -72,6 +72,28 @@ const seasonService = {
 
   async createSeason(targetPondIds, seasonName, startDate, expectedHarvestDate, shrimpType, quantitySeed, density, note) {
     try {
+      const toDateOnly = (v) => {
+        if (!v) return null;
+        const d = new Date(v);
+        return Number.isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      };
+
+      const startD = toDateOnly(startDate);
+      const today = toDateOnly(new Date());
+      if (startD && startD <= today) {
+        throw new Error('Ngày thả giống phải từ ngày mai trở đi. Không thể lên kế hoạch cho quá khứ hoặc ngay hôm nay.');
+      }
+
+      if (startDate && expectedHarvestDate) {
+        const expectedD = toDateOnly(expectedHarvestDate);
+        const diffTime = Math.abs(expectedD - startD);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 90) {
+          throw new Error('Chu kỳ nuôi của tôm sú tối thiểu phải là 90 ngày để đảm bảo tôm đạt kích cỡ thương phẩm.');
+        }
+      }
+
       const createdSeasons = [];
       for (const pondId of targetPondIds) {
         const result = await db.query(
@@ -80,12 +102,12 @@ const seasonService = {
           [pondId, seasonName, startDate, expectedHarvestDate, shrimpType, quantitySeed, density, note]
         );
         createdSeasons.push(result.rows[0]);
-        
+
         await db.query(`UPDATE ponds SET status = 'CHUAN_BI_NUOI' WHERE pond_id = $1`, [pondId]);
       }
       return createdSeasons;
     } catch (error) {
-      throw error; 
+      throw error;
     }
   },
 
@@ -93,12 +115,12 @@ const seasonService = {
     const seasonRes = await db.query('SELECT pond_id, status FROM seasons WHERE season_id = $1', [seasonId]);
     if (seasonRes.rows.length === 0) throw new Error('Không tìm thấy mùa vụ');
     if (seasonRes.rows[0].status !== 'CHUAN_BI_NUOI') throw new Error('Mùa vụ không ở trạng thái Chuẩn bị nuôi');
-    
+
     const pondId = seasonRes.rows[0].pond_id;
 
     await db.query(`UPDATE seasons SET status = 'DANG_NUOI' WHERE season_id = $1`, [seasonId]);
     await db.query(`UPDATE ponds SET status = 'DANG_NUOI' WHERE pond_id = $1`, [pondId]);
-    
+
     return { success: true };
   },
 
@@ -116,7 +138,7 @@ const seasonService = {
       if (sRes.rows.length === 0) throw new Error('Mùa vụ không tồn tại')
       const season = sRes.rows[0]
       if (String(season.status || '').toUpperCase() !== 'CHUAN_BI_NUOI') throw new Error('Chỉ có thể chỉnh sửa mùa vụ khi ở trạng thái Chuẩn bị nuôi')
-      
+
       const toDateOnly = (v) => {
         if (!v) return null
         const d = new Date(v)
@@ -126,10 +148,22 @@ const seasonService = {
       const today = toDateOnly(new Date())
 
       if (seasonName !== undefined && (!seasonName || !String(seasonName).trim())) throw new Error('Tên mùa vụ là bắt buộc')
+
+      if (startDate !== undefined && startD <= today) {
+        throw new Error('Ngày thả giống phải được dời sang ít nhất là ngày mai.');
+      }
+
       if (expectedHarvest !== undefined) {
         const expectedD = toDateOnly(expectedHarvest)
         const startD = startDate !== undefined ? toDateOnly(startDate) : toDateOnly(season.start_date)
         if (startD && expectedD < startD) throw new Error('Ngày dự kiến thu hoạch không được nhỏ hơn ngày thả')
+
+        if (startD && expectedD) {
+          const diffDays = Math.ceil(Math.abs(expectedD - startD) / (1000 * 60 * 60 * 24));
+          if (diffDays < 90) {
+            throw new Error('Thời gian nuôi dự kiến mới không được ít hơn 90 ngày.');
+          }
+        }
       }
 
       const dep = await db.query(`
@@ -180,11 +214,71 @@ const seasonService = {
     await db.query(`DELETE FROM tasks WHERE season_id = $1 AND status != 'COMPLETED'`, [seasonId]);
     await db.query(`UPDATE tasks SET season_id = NULL WHERE season_id = $1`, [seasonId]);
     try { await db.query('DELETE FROM expense_details WHERE season_id = $1', [seasonId]); } catch (e) { }
-    
+
     await db.query('DELETE FROM seasons WHERE season_id = $1', [seasonId])
     await db.query('UPDATE ponds SET status = $1 WHERE pond_id = $2', ['TAM_NGUNG', pondId])
 
     return { success: true, message: 'Đã xóa mùa vụ và dọn dẹp các lịch trình liên quan.' }
+  },
+
+  // 1. Kỹ sư gửi yêu cầu thu hoạch
+  async requestHarvest(seasonId, requestDate, note) {
+    const sRes = await db.query('SELECT status, start_date FROM seasons WHERE season_id = $1', [seasonId]);
+    if (sRes.rows.length === 0) throw new Error('Mùa vụ không tồn tại');
+    if (sRes.rows[0].status !== 'DANG_NUOI') throw new Error('Chỉ có thể xin thu hoạch khi ao Đang nuôi');
+
+    // 🌟 SỬA TẠI ĐÂY: Lấy chuỗi ngày hôm nay theo múi giờ Việt Nam (bỏ qua giờ phút giây)
+    const tzOffset = 7 * 60 * 60 * 1000; // Múi giờ Việt Nam GMT+7
+    const todayVn = new Date(Date.now() + tzOffset);
+    const todayStr = todayVn.toISOString().split('T')[0]; // Định dạng chuẩn 'YYYY-MM-DD'
+
+    // So sánh trực tiếp chuỗi ngày 'YYYY-MM-DD' công bằng, không sợ lệch múi giờ
+    if (requestDate <= todayStr) {
+        throw new Error('Ngày đề xuất thu hoạch phải từ ngày mai trở đi để trang trại kịp chuẩn bị nhân sự và dụng cụ.');
+    }
+
+    // Không được thu hoạch trước ngày thả giống
+    const startD = new Date(sRes.rows[0].start_date);
+    const startStr = startD.toISOString().split('T')[0];
+    if (requestDate < startStr) {
+        throw new Error('Lỗi phi logic: Ngày thu hoạch không thể diễn ra trước ngày thả giống.');
+    }
+
+    await db.query(`
+      UPDATE seasons 
+      SET harvest_request_status = 'PENDING', harvest_request_date = $1, harvest_request_note = $2 
+      WHERE season_id = $3
+    `, [requestDate, note, seasonId]);
+    
+    return { success: true };
+  },
+  // 2. Chủ trại duyệt yêu cầu
+  async reviewHarvestRequest(seasonId, isApproved) {
+    const status = isApproved ? 'APPROVED' : 'REJECTED';
+    await db.query(`
+      UPDATE seasons 
+      SET harvest_request_status = $1 
+      WHERE season_id = $2
+    `, [status, seasonId]);
+    return { success: true, status };
+  },
+
+  // 3. Cập nhật hàm harvestSeason để KHÓA KỸ SƯ nếu chưa được duyệt
+  async harvestSeason(seasonId, actualHarvestDate, harvestNote, harvestWeightKg, role) {
+    const seasonRes = await db.query('SELECT pond_id, harvest_request_status FROM seasons WHERE season_id = $1', [seasonId])
+    if (seasonRes.rows.length === 0) throw new Error('Không tìm thấy mùa vụ')
+    
+    // KHÓA CHẶN: Kỹ sư bắt buộc phải được APPROVED mới được thu hoạch
+    if (role === 'TECHNICIAN' && seasonRes.rows[0].harvest_request_status !== 'APPROVED') {
+        throw new Error('Bạn chưa được Chủ trại phê duyệt yêu cầu thu hoạch!');
+    }
+
+    const pondId = seasonRes.rows[0].pond_id
+    await db.query(`UPDATE seasons SET status = 'DA_THU_HOACH', actual_harvest = $1, note = $2, harvest_weight_kg = $3 WHERE season_id = $4`, [actualHarvestDate, harvestNote, harvestWeightKg, seasonId])
+    await db.query(`UPDATE ponds SET status = 'DANG_XU_LY' WHERE pond_id = $1`, [pondId])
+    await db.query(`DELETE FROM task_workers WHERE task_id IN (SELECT task_id FROM tasks WHERE season_id = $1 AND status = 'PENDING')`, [seasonId]);
+    await db.query(`DELETE FROM tasks WHERE season_id = $1 AND status = 'PENDING'`, [seasonId]);
+    return { seasonId, status: 'DA_THU_HOACH' }
   },
 }
 

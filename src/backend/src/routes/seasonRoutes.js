@@ -11,9 +11,15 @@ router.get('/:seasonId', seasonController.getSeasonDetail);
 router.post('/', authorize(['TECHNICIAN', 'OWNER']), seasonController.createSeason);
 router.put('/:seasonId', authorize(['TECHNICIAN', 'OWNER']), seasonController.updateSeason);
 
-// 🌟 ĐÂY CHÍNH LÀ 2 API BỊ THIẾU GÂY RA LỖI "TỪ CHỐI TRUY CẬP"
+// Bơm dữ liệu & Bắt đầu vụ
 router.patch('/:seasonId/start', authorize(['TECHNICIAN', 'OWNER']), seasonController.startSeason);
 router.post('/:seasonId/generate-sop', authorize(['TECHNICIAN', 'OWNER']), seasonController.generateSOP);
+
+// =========================================================================
+// 2 API MỚI VỪA ĐƯỢC BỔ SUNG (XIN PHÉP VÀ DUYỆT THU HOẠCH)
+// =========================================================================
+router.post('/:seasonId/request-harvest', authorize(['TECHNICIAN', 'OWNER']), seasonController.requestHarvest);
+router.post('/:seasonId/review-harvest', authorize(['OWNER']), seasonController.reviewHarvestRequest);
 
 // Thu hoạch và Xóa
 router.post('/:seasonId/harvest', authorize(['TECHNICIAN', 'OWNER']), seasonController.harvestSeason);

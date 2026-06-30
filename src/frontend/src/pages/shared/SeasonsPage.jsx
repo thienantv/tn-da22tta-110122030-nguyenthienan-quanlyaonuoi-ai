@@ -11,6 +11,7 @@ const CHART_COLORS = ['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#1
 const normalizeText = (s) => String(s || '').toLowerCase();
 const normalizeUpper = (s) => String(s || '').toUpperCase();
 
+
 const formatVietnameseDate = (value) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -61,19 +62,19 @@ const Sparkline = ({ color }) => (
 );
 
 const SOP_SECTIONS = [
-    { id: '5', title: '🧪 Đo môi trường nước (2 cữ/ngày)', hasMaterial: false },
-    { id: '2', title: '🦐 Cho tôm ăn (4 cữ/ngày)', hasMaterial: true },
-    { id: '3', title: '🧬 Xử lý nước & Cấy vi sinh (Định kỳ)', hasMaterial: true },
-    { id: '4', title: '🧹 Xi phong & Thay nước (Từ ngày 30)', hasMaterial: false },
-    { id: '6', title: '🎯 Thu hoạch', hasMaterial: false },
+  { id: '5', title: '🧪 Đo môi trường nước (2 cữ/ngày)', hasMaterial: false },
+  { id: '2', title: '🦐 Cho tôm ăn (4 cữ/ngày)', hasMaterial: true },
+  { id: '3', title: '🧬 Xử lý nước & Cấy vi sinh (Định kỳ)', hasMaterial: true },
+  { id: '4', title: '🧹 Xi phong & Thay nước (Từ ngày 30)', hasMaterial: true },
+  { id: '6', title: '🎯 Thu hoạch', hasMaterial: false },
 ];
 
 const initialSopConfig = {
-    '5': { workers: [], materials: [] },
-    '2': { workers: [], materials: [{ product_id: '', quantity: '' }] },
-    '3': { workers: [], materials: [{ product_id: '', quantity: '' }] },
-    '4': { workers: [], materials: [] },
-    '6': { workers: [], materials: [] },
+  '5': { workers: [], materials: [] },
+  '2': { workers: [], materials: [{ product_id: '', quantity: '' }] },
+  '3': { workers: [], materials: [{ product_id: '', quantity: '' }] },
+  '4': { workers: [], materials: [{ product_id: '', quantity: '' }] },
+  '6': { workers: [], materials: [] },
 };
 
 const SeasonsPage = ({ roleLabel = 'Owner' }) => {
@@ -84,10 +85,10 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   const [seasons, setSeasons] = useState([]);
   const [ponds, setPonds] = useState([]);
   const [technicians, setTechnicians] = useState([]);
-  
+
   const [workers, setWorkers] = useState([]);
   const [products, setProducts] = useState([]);
-  const [recentSeasonsForSOP, setRecentSeasonsForSOP] = useState([]); 
+  const [recentSeasonsForSOP, setRecentSeasonsForSOP] = useState([]);
   const [sopConfig, setSopConfig] = useState(initialSopConfig);
   const [isSopLoading, setIsSopLoading] = useState(false);
 
@@ -105,7 +106,11 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   const [showHarvestModal, setShowHarvestModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showHarvestSummaryModal, setShowHarvestSummaryModal] = useState(false);
-  
+
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [requestForm, setRequestForm] = useState({ requestDate: '', note: '' });
+
   const [showSopConfirmModal, setShowSopConfirmModal] = useState(false);
   const [showSopConfigModal, setShowSopConfigModal] = useState(false);
 
@@ -116,14 +121,14 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   useEffect(() => { fetchData(); }, [roleLabel]);
 
   useEffect(() => {
-      if (showSopConfigModal && workers.length === 0) {
-          loadSopDependencies();
-      }
+    if (showSopConfigModal && workers.length === 0) {
+      loadSopDependencies();
+    }
   }, [showSopConfigModal]);
 
   const fetchData = async () => {
     try {
-      setLoading(true); 
+      setLoading(true);
       const [seasonsRes, pondsRes] = await Promise.all([
         seasonService.getAllSeasons(),
         pondService.getAllPonds()
@@ -143,18 +148,18 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   };
 
   const loadSopDependencies = async () => {
-      try {
-          const [workerRes, prodRes] = await Promise.all([
-              taskService.getWorkersStatus(),
-              productService.getProducts()
-          ]);
-          
-          const workerList = workerRes?.data?.data || [];
-          setWorkers(workerList);
-          setProducts(prodRes?.data?.data || []);
-      } catch (err) {
-          showToast({ title: 'Lỗi tải danh sách Công nhân/Vật tư', type: 'error' });
-      }
+    try {
+      const [workerRes, prodRes] = await Promise.all([
+        taskService.getWorkersStatus(),
+        productService.getProducts()
+      ]);
+
+      const workerList = workerRes?.data?.data || [];
+      setWorkers(workerList);
+      setProducts(prodRes?.data?.data || []);
+    } catch (err) {
+      showToast({ title: 'Lỗi tải danh sách Công nhân/Vật tư', type: 'error' });
+    }
   };
 
   const getPondName = useCallback((pondId) => {
@@ -230,67 +235,92 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   }, [seasons, getPondName]);
 
   const getFilteredProducts = useCallback((typeId) => {
+    if (!typeId) return products;
     const type = String(typeId);
+
     return products.filter(p => {
-        const catCode = String(p.category_code || '').toUpperCase();
-        if (type === '2') return ['CAT-THUC-AN', 'CAT-THUOC', 'CAT-KHOANG-VITAMIN', 'CAT-VI-SINH'].includes(catCode);
-        if (type === '3') return ['CAT-HOA-CHAT', 'CAT-VI-SINH', 'CAT-KHOANG-VITAMIN'].includes(catCode);
-        return true;
+      const catCode = String(p.category_code || '').toUpperCase();
+
+      // 1. CẢI TẠO ĐẦU VỤ
+      if (type === '1') {
+        return ['CAT-HOA-CHAT', 'CAT-VI-SINH'].includes(catCode);
+      }
+
+      // 2. CHO ĂN
+      if (type === '2') {
+        return ['CAT-THUC-AN', 'CAT-THUOC', 'CAT-KHOANG-VITAMIN', 'CAT-VI-SINH'].includes(catCode);
+      }
+
+      // 3. XỬ LÝ NƯỚC & 4. THAY NƯỚC XI PHONG
+      if (type === '3' || type === '4') {
+        return ['CAT-HOA-CHAT', 'CAT-VI-SINH', 'CAT-KHOANG-VITAMIN'].includes(catCode);
+      }
+
+      // 7. CÔNG VIỆC KHÁC
+      return true;
     });
   }, [products]);
 
   const toggleSopWorker = (typeId, workerId) => {
-      setSopConfig(prev => {
-          const current = prev[typeId].workers;
-          const updated = current.includes(workerId) ? current.filter(id => id !== workerId) : [...current, workerId];
-          return { ...prev, [typeId]: { ...prev[typeId], workers: updated } };
-      });
+    setSopConfig(prev => {
+      const current = prev[typeId].workers;
+      const updated = current.includes(workerId) ? current.filter(id => id !== workerId) : [...current, workerId];
+      return { ...prev, [typeId]: { ...prev[typeId], workers: updated } };
+    });
   };
 
   const addSopMaterial = (typeId) => {
-      setSopConfig(prev => ({
-          ...prev, [typeId]: { ...prev[typeId], materials: [...prev[typeId].materials, { product_id: '', quantity: '' }] }
-      }));
+    setSopConfig(prev => ({
+      ...prev, [typeId]: { ...prev[typeId], materials: [...prev[typeId].materials, { product_id: '', quantity: '' }] }
+    }));
   };
 
   const removeSopMaterial = (typeId, index) => {
-      setSopConfig(prev => ({
-          ...prev, [typeId]: { ...prev[typeId], materials: prev[typeId].materials.filter((_, i) => i !== index) }
-      }));
+    setSopConfig(prev => ({
+      ...prev, [typeId]: { ...prev[typeId], materials: prev[typeId].materials.filter((_, i) => i !== index) }
+    }));
   };
 
   const updateSopMaterial = (typeId, index, field, value) => {
-      setSopConfig(prev => {
-          const newMats = [...prev[typeId].materials];
-          newMats[index][field] = value;
-          return { ...prev, [typeId]: { ...prev[typeId], materials: newMats } };
-      });
+    setSopConfig(prev => {
+      const newMats = [...prev[typeId].materials];
+      newMats[index][field] = value;
+      return { ...prev, [typeId]: { ...prev[typeId], materials: newMats } };
+    });
   };
 
   const handleGenerateSopSubmit = async () => {
-      if (recentSeasonsForSOP.length === 0) return;
-      setIsSopLoading(true);
-      
-      try {
-          for (const season of recentSeasonsForSOP) {
-              await seasonService.generateSOP(season.season_id, { 
-                  templateConfig: sopConfig 
-              });
-          }
-          showToast({ title: 'Thiết lập và Bơm Lịch trình SOP thành công!', type: 'success' });
-          setShowSopConfigModal(false);
-          setSopConfig(initialSopConfig);
-          fetchData(); 
-      } catch (err) {
-          showToast({ title: err?.response?.data?.message || 'Lỗi hệ thống khi sinh SOP', type: 'error' });
-      } finally {
-          setIsSopLoading(false);
+    if (recentSeasonsForSOP.length === 0) return;
+    setIsSopLoading(true);
+
+    try {
+      for (const season of recentSeasonsForSOP) {
+        await seasonService.generateSOP(season.season_id, {
+          templateConfig: sopConfig
+        });
       }
+      showToast({ title: 'Thiết lập và Bơm Lịch trình SOP thành công!', type: 'success' });
+      setShowSopConfigModal(false);
+      setSopConfig(initialSopConfig);
+      fetchData();
+    } catch (err) {
+      showToast({ title: err?.response?.data?.message || 'Lỗi hệ thống khi sinh SOP', type: 'error' });
+    } finally {
+      setIsSopLoading(false);
+    }
   };
 
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
     const isEditing = Boolean(selectedSeason?.season_id);
+
+    const selectedStart = new Date(createForm.startDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Đưa về 0h để so sánh chính xác ngày
+
+    if (selectedStart <= today) {
+      return showToast({ title: 'Ngày thả giống phải từ ngày mai trở đi (Không được chọn hôm nay hoặc quá khứ).', type: 'warning' });
+    }
 
     if (createForm.pondIds.length === 0) {
       return showToast({ title: 'Vui lòng chọn ít nhất 1 ao nuôi', type: 'warning' });
@@ -299,11 +329,11 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
     setSaving(true);
     try {
       const payload = {
-        pondIds: createForm.pondIds, 
+        pondIds: createForm.pondIds,
         seasonName: createForm.seasonName.trim(),
         startDate: createForm.startDate,
         expectedHarvestDate: createForm.expectedHarvestDate || null,
-        shrimpType: isEditing ? (selectedSeason.shrimp_type || 'Tôm sú') : 'Tôm sú', 
+        shrimpType: isEditing ? (selectedSeason.shrimp_type || 'Tôm sú') : 'Tôm sú',
         density: Number(createForm.density),
         quantitySeed: Number(createForm.seedQuantity || 0),
         note: createForm.note?.trim() || null,
@@ -318,11 +348,11 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
         const res = await seasonService.createSeason(payload);
         showToast({ title: `Đã tạo kế hoạch mùa vụ cho ${createForm.pondIds.length} ao`, type: 'success' });
         setShowCreateModal(false);
-        fetchData(); 
+        fetchData();
 
         if (res?.data?.data?.length > 0) {
-            setRecentSeasonsForSOP(res.data.data);
-            setShowSopConfirmModal(true);
+          setRecentSeasonsForSOP(res.data.data);
+          setShowSopConfirmModal(true);
         }
       }
     } catch (err) {
@@ -354,6 +384,29 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
       showToast({ title: 'Xóa thành công, Ao đã quay về Tạm Ngưng', type: 'success' });
       fetchData();
     } catch (err) { showToast({ title: err?.response?.data?.message || 'Lỗi xóa mùa vụ', type: 'error' }); }
+  };
+
+  const handleRequestSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await seasonService.requestHarvest(selectedSeason.season_id, requestForm);
+      showToast({ title: 'Đã gửi yêu cầu cho Chủ trại', type: 'success' });
+      setShowRequestModal(false);
+      fetchData();
+    } catch (err) { showToast({ title: err?.response?.data?.message || 'Lỗi gửi yêu cầu', type: 'error' }); }
+    finally { setSaving(false); }
+  };
+
+  const handleReviewSubmit = async (isApproved) => {
+    setSaving(true);
+    try {
+      await seasonService.reviewHarvestRequest(selectedSeason.season_id, { isApproved });
+      showToast({ title: isApproved ? 'Đã phê duyệt' : 'Đã từ chối', type: 'success' });
+      setShowReviewModal(false);
+      fetchData();
+    } catch (err) { showToast({ title: err?.response?.data?.message || 'Lỗi duyệt', type: 'error' }); }
+    finally { setSaving(false); }
   };
 
   if (loading && seasons.length === 0) {
@@ -510,12 +563,25 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
               ) : (
                 paginatedSeasons.map(season => {
                   const statusNorm = normalizeSeasonStatus(season.status);
-                  const canStart = isTechnician && statusNorm === 'CHUAN_BI_NUOI';
+                  const canGenerateSop = isTechnician && ['CHUAN_BI_NUOI', 'DANG_NUOI'].includes(statusNorm);
                   const canEdit = isTechnician && statusNorm === 'CHUAN_BI_NUOI';
                   const canDelete = isTechnician && statusNorm === 'CHUAN_BI_NUOI';
-                  const canHarvest = isTechnician && statusNorm === 'DANG_NUOI';
                   const canViewSummary = statusNorm === 'DA_THU_HOACH';
-                  
+
+                  // LOGIC MỚI CHO THU HOẠCH
+                  const isRunning = statusNorm === 'DANG_NUOI';
+                  const reqStatus = season.harvest_request_status;
+
+                  // Kỹ sư: Thấy nút Xin phép nếu chưa xin hoặc bị từ chối
+                  const canRequestHarvest = isTechnician && isRunning && (!reqStatus || reqStatus === 'REJECTED');
+                  // Kỹ sư: Thấy nút Thu hoạch (Xanh) khi được duyệt
+                  const canExecuteHarvest = isTechnician && isRunning && reqStatus === 'APPROVED';
+                  // Kỹ sư: Thấy chữ Chờ duyệt khi đang Pending
+                  const isPendingTech = isTechnician && isRunning && reqStatus === 'PENDING';
+
+                  // Chủ trại: Thấy nút Duyệt khi có yêu cầu PENDING
+                  const canReviewHarvest = isOwner && isRunning && reqStatus === 'PENDING';
+
                   // 🌟 KIỂM TRA ĐÃ CÓ TASK CHƯA (Backend trả về biến task_count)
                   const hasSop = Number(season.task_count) > 0;
 
@@ -538,24 +604,60 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
 
-                          <button onClick={() => { setSelectedSeason(season); setShowDetailModal(true); }} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-200 transition-all shadow-sm" title="Xem chi tiết">
+                          {/* 1. Nút xem chi tiết (Ai cũng thấy) */}
+                          <button onClick={() => { setSelectedSeason(season); setShowDetailModal(true); }} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-sky-50 hover:text-sky-600 flex items-center justify-center shadow-sm" title="Xem chi tiết">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                           </button>
 
+                          {/* 2. Nút xem tổng kết thu hoạch (Khi vụ nuôi đã xong) */}
                           {canViewSummary && (
                             <button onClick={() => { setSelectedSeason(season); setShowHarvestSummaryModal(true); }} className="p-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-600 hover:bg-sky-100 transition-all shadow-sm" title="Tổng kết thu hoạch">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                             </button>
                           )}
 
+                          {/* ========================================================================= */}
+                          {/* 🌟 ĐOẠN THÊM MỚI CHÍNH XÁC: PHÂN LUỒNG QUY TRÌNH DUYỆT THU HOẠCH */}
+                          {/* ========================================================================= */}
+                          
+                          {/* A. Đối với KỸ SƯ: Nút xin phép thu hoạch */}
+                          {canRequestHarvest && (
+                            <button onClick={() => { setSelectedSeason(season); setRequestForm({ requestDate: '', note: '' }); setShowRequestModal(true); }} className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100 transition-all shadow-sm flex items-center gap-1" title="Xin phép thu hoạch">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                              {/* <span className="text-xs font-bold">Xin thu hoạch</span> */}
+                            </button>
+                          )}
+
+                          {/* B. Đối với KỸ SƯ: Trạng thái hiển thị khi đang chờ sếp duyệt */}
+                          {isPendingTech && (
+                            <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-500 text-[11px] font-black shadow-sm cursor-not-allowed" title="Đang chờ Chủ trại phê duyệt">⏳ </span>
+                          )}
+
+                          {/* C. Đối với CHỦ TRẠI: Nút bấm xét duyệt nhấp nháy khẩn cấp */}
+                          {canReviewHarvest && (
+                            <button onClick={() => { setSelectedSeason(season); setShowReviewModal(true); }} className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 transition-all shadow-sm font-black text-xs animate-pulse flex items-center gap-1" title="Xem xét cấp phép thu hoạch">
+                              🚨
+                            </button>
+                          )}
+
+                          {/* D. Đối với KỸ SƯ: Nút tiến hành thu hoạch thực tế (Chỉ mở ra khi đã APPROVED) */}
+                          {canExecuteHarvest && (
+                            <button onClick={() => { setSelectedSeason(season); setHarvestForm(emptyHarvestForm); setShowHarvestModal(true); }} className="p-2 rounded-lg bg-emerald-50 border border-emerald-500 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 transition-all shadow-md flex items-center gap-1" title="Đã được cấp phép! Bấm để tiến hành thu hoạch">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                              <strong className="text-xs">Thu hoạch</strong>
+                            </button>
+                          )}
+
+                          {/* ========================================================================= */}
+                          {/* CÁC THAO TÁC CƠ BẢN KHÁC (CHỈ HIỂN THỊ KHI AO Ở GIAI ĐOẠN CHUẨN BỊ) */}
+                          {/* ========================================================================= */}
                           {isTechnician && (
-                            <>                              
-                              {/* 🌟 NÚT CẤU HÌNH SOP ĐÃ ĐƯỢC BẢO VỆ CHỐNG TRÙNG LẶP */}
-                              {canStart && (
-                                <button 
-                                  onClick={() => { if(!hasSop) { setRecentSeasonsForSOP([season]); setShowSopConfigModal(true); } }} 
+                            <>
+                              {canGenerateSop && (
+                                <button
+                                  onClick={() => { if (!hasSop) { setRecentSeasonsForSOP([season]); setShowSopConfigModal(true); } }}
                                   disabled={hasSop}
-                                  className={`p-2 rounded-lg border transition-all shadow-sm ${hasSop ? 'bg-slate-50 border-slate-200 text-emerald-500 cursor-not-allowed opacity-80' : 'bg-white border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`} 
+                                  className={`p-2 rounded-lg border transition-all shadow-sm ${hasSop ? 'bg-slate-50 border-slate-200 text-emerald-500 cursor-not-allowed opacity-80' : 'bg-white border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`}
                                   title={hasSop ? "Lịch trình SOP đã được thiết lập" : "Thiết lập Lịch trình SOP tự động"}>
                                   {hasSop ? '✅' : '⚙️'}
                                 </button>
@@ -576,12 +678,6 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                                   setShowCreateModal(true);
                                 }} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-all shadow-sm" title="Chỉnh sửa Kế hoạch">
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                                </button>
-                              )}
-
-                              {canHarvest && (
-                                <button onClick={() => { setSelectedSeason(season); setHarvestForm(emptyHarvestForm); setShowHarvestModal(true); }} className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 transition-all shadow-sm" title="Thu hoạch mùa vụ">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
                                 </button>
                               )}
 
@@ -685,7 +781,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
       {showCreateModal && isTechnician && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowCreateModal(false)}>
           <div className="bg-white max-w-3xl w-full p-0 rounded-[24px] shadow-2xl flex flex-col max-h-[95vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>
-            
+
             <div className="flex justify-between items-center p-5 sm:p-6 border-b border-slate-100 bg-slate-50/50 shrink-0">
               <h2 className="text-xl md:text-2xl font-extrabold text-slate-800">
                 {selectedSeason?.season_id ? 'Chỉnh sửa Mùa vụ' : 'Bắt đầu Mùa vụ mới'}
@@ -696,7 +792,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
             <form onSubmit={handleCreateSubmit} className="flex flex-col flex-1 overflow-hidden">
               <div className="p-5 sm:p-6 flex-1 overflow-y-auto">
                 <div className="flex flex-col gap-6">
-                  
+
                   {/* Khối 1: Ma trận Chọn Ao */}
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-bold text-slate-700 flex justify-between items-center">
@@ -711,8 +807,8 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                       {(selectedSeason?.season_id ? editPondOptions : eligiblePonds).map(p => {
                         const isChecked = createForm.pondIds.includes(p.pond_id);
                         return (
-                          <label 
-                            key={p.pond_id} 
+                          <label
+                            key={p.pond_id}
                             className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isChecked ? 'bg-emerald-50 border-emerald-500 shadow-md scale-[1.02]' : 'bg-white border-slate-200 hover:border-emerald-300 shadow-sm'}`}
                           >
                             <input
@@ -720,8 +816,8 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                               checked={isChecked}
                               disabled={Boolean(selectedSeason?.season_id)}
                               onChange={(e) => {
-                                if (e.target.checked) setCreateForm(prev => ({...prev, pondIds: [...prev.pondIds, p.pond_id]}));
-                                else setCreateForm(prev => ({...prev, pondIds: prev.pondIds.filter(id => id !== p.pond_id)}));
+                                if (e.target.checked) setCreateForm(prev => ({ ...prev, pondIds: [...prev.pondIds, p.pond_id] }));
+                                else setCreateForm(prev => ({ ...prev, pondIds: prev.pondIds.filter(id => id !== p.pond_id) }));
                               }}
                               className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 disabled:opacity-50"
                             />
@@ -734,8 +830,8 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                       })}
                       {!selectedSeason?.season_id && eligiblePonds.length === 0 && (
                         <div className="col-span-full text-center py-8 flex flex-col items-center justify-center gap-2">
-                           <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">🔒</div>
-                           <span className="text-slate-500 text-sm font-medium">Tất cả các ao đều đang có vụ nuôi hoặc bị khóa.</span>
+                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">🔒</div>
+                          <span className="text-slate-500 text-sm font-medium">Tất cả các ao đều đang có vụ nuôi hoặc bị khóa.</span>
                         </div>
                       )}
                     </div>
@@ -751,37 +847,55 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 bg-sky-50/50 p-4 sm:p-5 rounded-2xl border border-sky-100">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-sm font-bold text-sky-800">Ngày thả giống <span className="text-rose-500">*</span></label>
-                      <input 
-                        type="date" 
-                        value={createForm.startDate} 
+                      <input
+                        type="date"
+                        // Tự động tính ngày mai để khóa lịch
+                        min={(() => {
+                          const tmr = new Date();
+                          tmr.setDate(tmr.getDate() + 1);
+                          return `${tmr.getFullYear()}-${String(tmr.getMonth() + 1).padStart(2, '0')}-${String(tmr.getDate()).padStart(2, '0')}`;
+                        })()}
+                        value={createForm.startDate}
                         onChange={(e) => {
                           const newStartDate = e.target.value;
                           let autoHarvestDate = createForm.expectedHarvestDate;
-                          
+
                           if (newStartDate) {
                             const startObj = new Date(newStartDate);
                             startObj.setDate(startObj.getDate() + 120);
                             autoHarvestDate = startObj.toISOString().split('T')[0];
                           }
 
-                          setCreateForm({ 
-                            ...createForm, 
-                            startDate: newStartDate, 
-                            expectedHarvestDate: autoHarvestDate 
+                          setCreateForm({
+                            ...createForm,
+                            startDate: newStartDate,
+                            expectedHarvestDate: autoHarvestDate
                           });
-                        }} 
-                        required 
-                        className="w-full px-4 py-3 border border-sky-200 rounded-xl focus:bg-white bg-white focus:ring-2 focus:ring-sky-100 focus:border-sky-500 outline-none transition-all font-medium shadow-sm cursor-pointer" 
+                        }}
+                        required
+                        className="w-full px-4 py-3 border border-sky-200 rounded-xl focus:bg-white bg-white focus:ring-2 focus:ring-sky-100 focus:border-sky-500 outline-none transition-all font-medium shadow-sm cursor-pointer"
                       />
                     </div>
-                    
+
                     <div className="flex flex-col gap-1.5">
                       <label className="text-sm font-bold text-sky-800">Dự kiến thu hoạch (Tự động tính 120 ngày)</label>
-                      <input 
-                        type="date" 
-                        value={createForm.expectedHarvestDate} 
-                        onChange={(e) => setCreateForm({ ...createForm, expectedHarvestDate: e.target.value })} 
-                        className="w-full px-4 py-3 border border-sky-200 rounded-xl focus:bg-white bg-white focus:ring-2 focus:ring-sky-100 focus:border-sky-500 outline-none transition-all font-medium shadow-sm cursor-pointer" 
+                      <input
+                        type="date"
+                        // Ngày thu hoạch nhỏ nhất bắt buộc phải sau Ngày thả giống ít nhất 90 ngày
+                        min={(() => {
+                          if (createForm.startDate) {
+                            const startObj = new Date(createForm.startDate);
+                            startObj.setDate(startObj.getDate() + 90); // Cộng thêm ít nhất 90 ngày nuôi
+                            return startObj.toISOString().split('T')[0];
+                          }
+                          // Nếu chưa chọn ngày thả, mặc định min là Ngày mai + 90 ngày
+                          const tmr = new Date();
+                          tmr.setDate(tmr.getDate() + 91);
+                          return `${tmr.getFullYear()}-${String(tmr.getMonth() + 1).padStart(2, '0')}-${String(tmr.getDate()).padStart(2, '0')}`;
+                        })()}
+                        value={createForm.expectedHarvestDate}
+                        onChange={(e) => setCreateForm({ ...createForm, expectedHarvestDate: e.target.value })}
+                        className="w-full px-4 py-3 border border-sky-200 rounded-xl focus:bg-white bg-white focus:ring-2 focus:ring-sky-100 focus:border-sky-500 outline-none transition-all font-medium shadow-sm cursor-pointer"
                       />
                     </div>
                   </div>
@@ -823,7 +937,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
       {showHarvestModal && isTechnician && selectedSeason && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowHarvestModal(false)}>
           <div className="bg-white max-w-md w-full p-0 rounded-[24px] shadow-2xl flex flex-col max-h-[95vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>
-            
+
             <div className="flex justify-between items-center p-5 sm:p-6 border-b border-emerald-100 bg-emerald-50/50 shrink-0">
               <h2 className="text-xl md:text-2xl font-extrabold text-emerald-700 flex items-center gap-2">
                 <span>Tiến hành Thu hoạch</span>
@@ -834,18 +948,18 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
 
             <form onSubmit={handleHarvestSubmit} className="flex flex-col flex-1 overflow-hidden">
               <div className="p-5 sm:p-6 flex-1 overflow-y-auto">
-                
+
                 <div className="bg-emerald-50/80 p-4 rounded-2xl border border-emerald-100 mb-6 text-sm text-slate-700 shadow-inner">
                   <div className="flex justify-between items-center pb-2 mb-2 border-b border-emerald-100/50">
-                    <span className="font-medium">Mùa vụ:</span> 
+                    <span className="font-medium">Mùa vụ:</span>
                     <strong className="text-emerald-800 text-base">{selectedSeason.season_name}</strong>
                   </div>
                   <div className="flex justify-between items-center pb-2 mb-2 border-b border-emerald-100/50">
-                    <span className="font-medium">Ao nuôi:</span> 
+                    <span className="font-medium">Ao nuôi:</span>
                     <strong className="text-slate-800">{getPondName(selectedSeason.pond_id)}</strong>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="font-medium">Thời gian đã nuôi:</span> 
+                    <span className="font-medium">Thời gian đã nuôi:</span>
                     <strong className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">{seasonDays(selectedSeason)} ngày</strong>
                   </div>
                 </div>
@@ -855,7 +969,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                     <label className="text-sm font-bold text-slate-700">Ngày thu hoạch thực tế <span className="text-rose-500">*</span></label>
                     <input type="date" value={harvestForm.actualHarvestDate} onChange={(e) => setHarvestForm({ ...harvestForm, actualHarvestDate: e.target.value })} required className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:bg-white bg-slate-50 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none transition-all font-medium shadow-sm cursor-pointer" />
                   </div>
-                  
+
                   <div className="flex flex-col gap-1.5">
                     <label className="text-sm font-bold text-slate-700">Tổng sản lượng thu được <span className="text-rose-500">*</span></label>
                     <div className="relative">
@@ -863,7 +977,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold bg-white px-2 py-1 rounded">KG</span>
                     </div>
                   </div>
-                  
+
                   <div className="flex flex-col gap-1.5">
                     <label className="text-sm font-bold text-slate-700">Ghi chú thêm (Tùy chọn)</label>
                     <textarea rows="3" value={harvestForm.note} onChange={(e) => setHarvestForm({ ...harvestForm, note: e.target.value })} placeholder="Kích cỡ tôm, tình trạng, giá bán..." className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:bg-white bg-slate-50 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none transition-all font-medium resize-none shadow-sm"></textarea>
@@ -882,13 +996,85 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
         </div>
       )}
 
+      {/* 🌟 MODAL XIN PHÉP THU HOẠCH (CHO KỸ SƯ) */}
+      {showRequestModal && selectedSeason && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowRequestModal(false)}>
+          <div className="bg-white max-w-md w-full p-0 rounded-[24px] shadow-2xl overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-amber-100 bg-amber-50/50 flex justify-between items-center">
+              <h2 className="text-xl font-extrabold text-amber-700">Xin phép Thu Hoạch</h2>
+              <button onClick={() => setShowRequestModal(false)} className="text-amber-600 hover:bg-amber-100 w-8 h-8 rounded-full">&times;</button>
+            </div>
+            <form onSubmit={handleRequestSubmit} className="p-5 flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-bold text-slate-700">Đề xuất ngày thu hoạch <span className="text-rose-500">*</span></label>
+                <input 
+                  type="date" 
+                  required 
+                  // 🌟 NÂNG CẤP CHỐNG LỆCH GIỜ FRONTEND: Tính ngày mai dạng chuỗi YYYY-MM-DD chuẩn đét
+                  min={(() => {
+                      const tmr = new Date();
+                      tmr.setDate(tmr.getDate() + 1);
+                      
+                      const yyyy = tmr.getFullYear();
+                      const mm = String(tmr.getMonth() + 1).padStart(2, '0');
+                      const dd = String(tmr.getDate()).padStart(2, '0');
+                      const tmrStr = `${yyyy}-${mm}-${dd}`;
+                      
+                      if (selectedSeason?.start_date) {
+                          const startD = new Date(selectedSeason.start_date);
+                          const startStr = startD.toISOString().split('T')[0];
+                          return startStr > tmrStr ? startStr : tmrStr;
+                      }
+                      return tmrStr;
+                  })()}
+                  value={requestForm.requestDate} 
+                  onChange={e => setRequestForm({...requestForm, requestDate: e.target.value})} 
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-100 outline-none cursor-pointer" 
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-bold text-slate-700">Giải trình lý do / Tình trạng tôm <span className="text-rose-500">*</span></label>
+                <textarea required rows="3" placeholder="Tôm đã đạt size, tôm có dấu hiệu bệnh..." value={requestForm.note} onChange={e => setRequestForm({...requestForm, note: e.target.value})} className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-100 outline-none resize-none"></textarea>
+              </div>
+              <button type="submit" disabled={saving} className="mt-2 w-full py-3.5 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 shadow-md">Gửi Yêu Cầu</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 MODAL DUYỆT THU HOẠCH (CHO CHỦ TRẠI) */}
+      {showReviewModal && selectedSeason && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowReviewModal(false)}>
+          <div className="bg-white max-w-md w-full p-0 rounded-[24px] shadow-2xl overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-rose-100 bg-rose-50/50 flex justify-between items-center">
+              <h2 className="text-xl font-extrabold text-rose-700">Duyệt Yêu cầu Thu Hoạch</h2>
+              <button onClick={() => setShowReviewModal(false)} className="text-rose-600 hover:bg-rose-100 w-8 h-8 rounded-full">&times;</button>
+            </div>
+            <div className="p-5">
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-5 text-sm text-slate-700">
+                <p className="mb-2"><strong className="text-slate-800">Kỹ sư đề xuất:</strong> {selectedSeason.technician_name}</p>
+                <p className="mb-2"><strong className="text-slate-800">Ngày đề xuất:</strong> <span className="text-rose-600 font-bold">{formatVietnameseDate(selectedSeason.harvest_request_date)}</span></p>
+                <p><strong className="text-slate-800 block mb-1">Lý do giải trình:</strong> <span className="italic">{selectedSeason.harvest_request_note}</span></p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => handleReviewSubmit(false)} disabled={saving} className="flex-1 py-3.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200">Từ chối</button>
+                <button onClick={() => handleReviewSubmit(true)} disabled={saving} className="flex-1 py-3.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-200">✅ Cấp phép</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 🌟 1. MODAL HỎI SAU KHI TẠO VỤ */}
       {showSopConfirmModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setShowSopConfirmModal(false)}>
           <div className="bg-white max-w-sm w-full p-6 text-center rounded-[24px] shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-inner">⚡</div>
             <h3 className="text-xl font-extrabold text-slate-800 mb-2">Sinh Lịch trình (SOP)?</h3>
-            <p className="text-slate-600 text-sm mb-6">Mùa vụ đã được tạo. Bạn có muốn hệ thống tự động sinh 120 ngày công việc (Cho ăn, xử lý nước...) theo quy chuẩn không?</p>
+            <p className="text-slate-600 text-sm mb-6">
+              Hệ thống sẽ tự động lên lịch các công việc tiêu chuẩn (Cho ăn, xử lý nước...). <br />
+              <strong className="text-amber-600">Lưu ý: Nếu vụ đang nuôi, SOP sẽ được tạo bắt đầu từ NGÀY MAI để đảm bảo thời gian chuẩn bị.</strong>
+            </p>
             <div className="flex flex-col gap-3">
               <button onClick={() => { setShowSopConfirmModal(false); setShowSopConfigModal(true); }} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95">Thiết lập SOP ngay</button>
               <button onClick={() => setShowSopConfirmModal(false)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all">Để tự tạo sau</button>
@@ -901,7 +1087,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
       {showSopConfigModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowSopConfigModal(false)}>
           <div className="bg-white max-w-4xl w-full p-0 rounded-[24px] shadow-2xl flex flex-col max-h-[95vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>
-            
+
             <div className="p-5 sm:p-6 border-b border-slate-100 bg-slate-50/80 shrink-0 flex justify-between items-center">
               <div>
                 <h2 className="text-xl md:text-2xl font-extrabold text-slate-800">Cấu hình Thiết lập SOP Mẫu</h2>
@@ -912,59 +1098,59 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
 
             <div className="flex-1 overflow-y-auto p-5 sm:p-6 bg-slate-50/30">
               <div className="flex flex-col gap-6">
-                  {SOP_SECTIONS.map(sec => (
-                      <div key={sec.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                          <h4 className="font-extrabold text-slate-800 mb-4 pb-2 border-b border-slate-100">{sec.title}</h4>
-                          
-                          {/* Khối chọn Công nhân */}
-                          <div className="mb-5">
-                              <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2.5 block">Phân công Nhân sự (Mặc định)</label>
-                              <div className="flex flex-wrap gap-2.5">
-                                  {workers.length === 0 ? <span className="text-sm italic text-slate-400">Không có công nhân nào được phân công.</span> : workers.map(w => {
-                                      const wId = w.worker_id || w.user_id;
-                                      const isSelected = sopConfig[sec.id].workers.includes(wId);
-                                      return (
-                                          <label key={wId} className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border cursor-pointer text-sm font-bold transition-all ${isSelected ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}>
-                                              <input type="checkbox" className="hidden" checked={isSelected} onChange={() => toggleSopWorker(sec.id, wId)} />
-                                              {w.full_name || w.username}
-                                          </label>
-                                      )
-                                  })}
-                              </div>
-                          </div>
+                {SOP_SECTIONS.map(sec => (
+                  <div key={sec.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                    <h4 className="font-extrabold text-slate-800 mb-4 pb-2 border-b border-slate-100">{sec.title}</h4>
 
-                          {/* Khối chọn Vật tư */}
-                          {sec.hasMaterial && (
-                              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                  <div className="flex justify-between items-center mb-3">
-                                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Vật tư / Thuốc xuất kho (Mặc định)</label>
-                                      <button type="button" onClick={() => addSopMaterial(sec.id)} className="text-xs text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-lg font-bold hover:bg-blue-100 transition-colors shadow-sm">+ Thêm vật tư</button>
-                                  </div>
-                                  <div className="flex flex-col gap-3">
-                                      {sopConfig[sec.id].materials.map((mat, idx) => (
-                                          <div key={idx} className="flex flex-wrap sm:flex-nowrap gap-2 items-center bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
-                                              <select value={mat.product_id} onChange={e => updateSopMaterial(sec.id, idx, 'product_id', e.target.value)} className="flex-1 min-w-[200px] p-2.5 text-sm font-bold text-slate-700 border-none bg-transparent outline-none cursor-pointer">
-                                                  <option value="">-- Chọn sản phẩm trong kho --</option>
-                                                  {getFilteredProducts(sec.id).map(p => <option key={p.product_id} value={p.product_id}>{p.product_name}</option>)}
-                                              </select>
-                                              <div className="w-[1px] h-8 bg-slate-200 hidden sm:block"></div>
-                                              <input type="number" step="0.01" value={mat.quantity} onChange={e => updateSopMaterial(sec.id, idx, 'quantity', e.target.value)} placeholder="Định mức (VD: 5)" className="w-full sm:w-32 p-2.5 text-sm font-bold text-slate-700 border-none bg-transparent outline-none text-center sm:text-left" />
-                                              <div className="w-[1px] h-8 bg-slate-200 hidden sm:block"></div>
-                                              <input type="text" value={products.find(p => String(p.product_id) === String(mat.product_id))?.unit || '-'} disabled className="w-16 sm:w-20 p-2.5 text-sm font-bold text-slate-500 border-none bg-transparent outline-none text-center cursor-not-allowed" title="Đơn vị tính" />
-                                              
-                                              <button type="button" onClick={() => removeSopMaterial(sec.id, idx)} disabled={sopConfig[sec.id].materials.length === 1} className="w-10 h-10 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors ml-auto sm:ml-0 disabled:opacity-30">
-                                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                              </button>
-                                          </div>
-                                      ))}
-                                      {sopConfig[sec.id].materials.length === 0 && (
-                                          <span className="text-xs text-slate-400 italic">Không có vật tư nào được chọn.</span>
-                                      )}
-                                  </div>
-                              </div>
-                          )}
+                    {/* Khối chọn Công nhân */}
+                    <div className="mb-5">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2.5 block">Phân công Nhân sự (Mặc định)</label>
+                      <div className="flex flex-wrap gap-2.5">
+                        {workers.length === 0 ? <span className="text-sm italic text-slate-400">Không có công nhân nào được phân công.</span> : workers.map(w => {
+                          const wId = w.worker_id || w.user_id;
+                          const isSelected = sopConfig[sec.id].workers.includes(wId);
+                          return (
+                            <label key={wId} className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border cursor-pointer text-sm font-bold transition-all ${isSelected ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}>
+                              <input type="checkbox" className="hidden" checked={isSelected} onChange={() => toggleSopWorker(sec.id, wId)} />
+                              {w.full_name || w.username}
+                            </label>
+                          )
+                        })}
                       </div>
-                  ))}
+                    </div>
+
+                    {/* Khối chọn Vật tư */}
+                    {sec.hasMaterial && (
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <div className="flex justify-between items-center mb-3">
+                          <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Vật tư / Thuốc xuất kho (Mặc định)</label>
+                          <button type="button" onClick={() => addSopMaterial(sec.id)} className="text-xs text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-lg font-bold hover:bg-blue-100 transition-colors shadow-sm">+ Thêm vật tư</button>
+                        </div>
+                        <div className="flex flex-col gap-3">
+                          {sopConfig[sec.id].materials.map((mat, idx) => (
+                            <div key={idx} className="flex flex-wrap sm:flex-nowrap gap-2 items-center bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                              <select value={mat.product_id} onChange={e => updateSopMaterial(sec.id, idx, 'product_id', e.target.value)} className="flex-1 min-w-[200px] p-2.5 text-sm font-bold text-slate-700 border-none bg-transparent outline-none cursor-pointer">
+                                <option value="">-- Chọn sản phẩm trong kho --</option>
+                                {getFilteredProducts(sec.id).map(p => <option key={p.product_id} value={p.product_id}>{p.product_name}</option>)}
+                              </select>
+                              <div className="w-[1px] h-8 bg-slate-200 hidden sm:block"></div>
+                              <input type="number" step="0.01" value={mat.quantity} onChange={e => updateSopMaterial(sec.id, idx, 'quantity', e.target.value)} placeholder="Định mức (VD: 5)" className="w-full sm:w-32 p-2.5 text-sm font-bold text-slate-700 border-none bg-transparent outline-none text-center sm:text-left" />
+                              <div className="w-[1px] h-8 bg-slate-200 hidden sm:block"></div>
+                              <input type="text" value={products.find(p => String(p.product_id) === String(mat.product_id))?.unit || '-'} disabled className="w-16 sm:w-20 p-2.5 text-sm font-bold text-slate-500 border-none bg-transparent outline-none text-center cursor-not-allowed" title="Đơn vị tính" />
+
+                              <button type="button" onClick={() => removeSopMaterial(sec.id, idx)} disabled={sopConfig[sec.id].materials.length === 1} className="w-10 h-10 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors ml-auto sm:ml-0 disabled:opacity-30">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </div>
+                          ))}
+                          {sopConfig[sec.id].materials.length === 0 && (
+                            <span className="text-xs text-slate-400 italic">Không có vật tư nào được chọn.</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -972,7 +1158,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
               <button type="button" onClick={() => setShowSopConfigModal(false)} className="px-6 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Đóng lại</button>
               <button type="button" onClick={handleGenerateSopSubmit} disabled={isSopLoading} className="px-8 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-md shadow-blue-500/20 active:scale-95 transition-all flex items-center gap-2">
                 {isSopLoading ? (
-                    <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Đang bơm dữ liệu...</>
+                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Đang bơm dữ liệu...</>
                 ) : 'Phát lệnh SOP'}
               </button>
             </div>
