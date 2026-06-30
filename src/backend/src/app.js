@@ -29,6 +29,7 @@ const sensorRoutes = require('./routes/sensorRoutes')
 const notificationRoutes = require('./routes/notificationRoutes')
 const diseaseRoutes = require('./routes/diseaseRoutes')
 const productRoutes = require('./routes/productRoutes')
+const incidentRoutes = require('./routes/incidentRoutes')
 
 // Initialize Express
 const app = express()
@@ -109,9 +110,8 @@ app.use('/api/sensors', authenticateToken, sensorRoutes)
 app.use('/api/notifications', authenticateToken, notificationRoutes)
 app.use('/api/diseases', authenticateToken, diseaseRoutes)
 app.use('/api/products', authenticateToken, productRoutes)
-
-// ĐÃ THÊM LỚP XÁC THỰC CHO ROUTE CHI PHÍ Ở ĐÂY CHÍNH XÁC:
 app.use('/api/expenses', authenticateToken, expenseRoutes);
+app.use('/api/incidents', authenticateToken, incidentRoutes);
 
 // Error handling
 app.use(notFoundHandler)

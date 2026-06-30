@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { showToast } from '../../utils/toast';
-import { taskService, productService, pondService, userService } from '../../services/api';
+import { taskService, productService, pondService, userService, diseaseService, incidentService } from '../../services/api';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const STATUS_OPTIONS = [
     { value: 'ALL', label: 'Tất cả trạng thái' },
@@ -227,6 +228,7 @@ const TaskManagementPage = ({
     pageSubtitle = 'Phân phối Kịch bản SOP & Tiến độ thực địa'
 }) => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [tasks, setTasks] = useState([]);
     const [ponds, setPonds] = useState([]);
     const [products, setProducts] = useState([]);
@@ -236,6 +238,8 @@ const TaskManagementPage = ({
 
     const [loading, setLoading] = useState(true);
     const [loadingPonds, setLoadingPonds] = useState(false);
+
+    const [saving, setSaving] = useState(false);
 
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(7); // Mặc định hiển thị theo Tuần (7 ngày)
@@ -257,6 +261,13 @@ const TaskManagementPage = ({
     const [form, setForm] = useState(initialForm);
     const [editForm, setEditForm] = useState({ task_id: '', type_id: '', task_title: '', description: '', start_date: '', due_date: '', assigned_workers: [], materials: [] });
 
+    const [isIncidentOpen, setIsIncidentOpen] = useState(false);
+    const [incidentForm, setIncidentForm] = useState({ pond_id: '', description: '', imageFile: null, previewUrl: '' });
+
+    // STATE CHO KỸ SƯ XEM SỰ CỐ
+    const [incidents, setIncidents] = useState([]);
+    const [isIncidentInboxOpen, setIsIncidentInboxOpen] = useState(false);
+
     const isProductRequired = useMemo(() => ['1', '2', '3', '4', '7'].includes(String(form.task_type)), [form.task_type]);
     const isEditProductRequired = useMemo(() => ['1', '2', '3', '4', '7'].includes(String(editForm?.type_id || editForm?.task_type)), [editForm?.type_id, editForm?.task_type]);
 
@@ -266,12 +277,12 @@ const TaskManagementPage = ({
 
         return products.filter(p => {
             const catCode = String(p.category_code || '').toUpperCase();
-            
+
             // 1. CẢI TẠO ĐẦU VỤ: Tuyệt đối chỉ dùng Hóa chất diệt khuẩn/xử lý và Vi sinh gây màu
             if (type === '1') {
                 return ['CAT-HOA-CHAT', 'CAT-VI-SINH'].includes(catCode);
             }
-            
+
             // 2. CHO ĂN: Cám, Thuốc trị bệnh, Khoáng/Vitamin trộn áo cám, Vi sinh đường ruột
             if (type === '2') {
                 return ['CAT-THUC-AN', 'CAT-THUOC', 'CAT-KHOANG-VITAMIN', 'CAT-VI-SINH'].includes(catCode);
@@ -359,13 +370,13 @@ const TaskManagementPage = ({
             await taskService.createTask(form);
             showToast({ title: 'Giao việc thành công!', type: 'success' });
             setIsCreateOpen(false);
-            
-            setForm(initialForm); 
-            
+
+            setForm(initialForm);
+
             fetchTasks();
-        } catch (error) { 
+        } catch (error) {
             const errorMsg = error?.response?.data?.message || error?.message || 'Lỗi giao việc';
-            showToast({ title: errorMsg, type: 'error' }); 
+            showToast({ title: errorMsg, type: 'error' });
         }
     };
 
@@ -375,9 +386,9 @@ const TaskManagementPage = ({
             showToast({ title: 'Cập nhật kế hoạch thành công!', type: 'success' });
             setIsEditOpen(false);
             fetchTasks();
-        } catch (error) { 
+        } catch (error) {
             const errorMsg = error?.response?.data?.message || error?.message || 'Lỗi cập nhật';
-            showToast({ title: errorMsg, type: 'error' }); 
+            showToast({ title: errorMsg, type: 'error' });
         }
     };
 
@@ -391,26 +402,72 @@ const TaskManagementPage = ({
         } catch (error) { showToast({ title: error?.response?.data?.message || 'Lỗi báo cáo thực địa', type: 'error' }); }
     };
 
+    const handleIncidentSubmit = async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+            // Đóng gói tất cả dữ liệu chữ và file ảnh vào chung 1 kiện hàng
+            const formData = new FormData();
+            formData.append('pondId', incidentForm.pond_id);
+            formData.append('description', incidentForm.description);
+            if (incidentForm.imageFile) {
+                formData.append('image', incidentForm.imageFile);
+            }
+            
+            // Chỉ gửi 1 lần duy nhất
+            await incidentService.reportIncident(formData);
+
+            showToast({ title: 'Đã báo động khẩn cấp thành công!', type: 'success' });
+            setIsIncidentOpen(false);
+            setIncidentForm({ pond_id: '', description: '', imageFile: null, previewUrl: '' });
+        } catch (error) {
+            showToast({ title: 'Lỗi gửi báo cáo', type: 'error' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleResolveIncident = async (incidentId) => {
+        try {
+            setIncidents(prev => prev.filter(i => i.incident_id !== incidentId));
+            
+            await incidentService.resolveIncident(incidentId);
+            showToast({ title: 'Đã đánh dấu xử lý xong sự cố!', type: 'success' });
+            
+            // Tải lại danh sách để hòm thư tự động cập nhật và làm mất chấm đỏ
+            const res = await incidentService.getIncidents();
+            setIncidents(res?.data?.data || []);
+        } catch (error) {
+            showToast({ title: 'Lỗi cập nhật trạng thái', type: 'error' });
+        }
+    };
+
     useEffect(() => {
         const loadInitialData = async () => {
             setLoading(true);
             try {
                 await fetchTasks();
                 if (!readOnly && mode === 'technician') {
-                    const [prodRes, workerRes, pondRes] = await Promise.all([
+                    const [prodRes, workerRes, pondRes, incidentRes] = await Promise.all([
                         productService.getProducts(),
                         taskService.getWorkersStatus(),
-                        pondService.getAllPonds()
+                        pondService.getAllPonds(),
+                        incidentService.getIncidents()
                     ]);
                     setProducts(prodRes?.data?.data || []);
                     setWorkers(workerRes?.data?.data || []);
                     setPonds(pondRes?.data?.data || []);
+                    setIncidents(incidentRes?.data?.data || []);
                 } else if (mode === 'owner') {
                     const [pondRes, userRes] = await Promise.all([pondService.getAllPonds(), userService.getAllUsers()]);
                     setPonds(pondRes?.data?.data || []);
                     const allUsers = userRes?.data?.data || [];
                     setEngineersList(allUsers.filter(u => normalize(u.role_name) === 'TECHNICIAN' || normalize(u.role) === 'TECHNICIAN'));
                     setWorkers(allUsers.filter(u => normalize(u.role_name) === 'WORKER' || normalize(u.role) === 'WORKER'));
+                } else if (mode === 'worker') {
+                    // 🌟 FIX LỖI: Gọi API tải danh sách Ao cho Công nhân để hiện vào Form Báo cáo sự cố
+                    const pondRes = await pondService.getAllPonds();
+                    setPonds(pondRes?.data?.data || []);
                 }
             } catch (err) { showToast({ title: 'Lỗi khởi tạo dữ liệu', type: 'error' }); }
             finally { setLoading(false); }
@@ -612,13 +669,39 @@ const TaskManagementPage = ({
                     <p className="text-slate-500 font-medium mt-1.5">{pageSubtitle}</p>
                 </div>
 
-                {!readOnly && (
-                    <div className="relative z-10 w-full md:w-auto">
-                        <button onClick={() => { setForm(initialForm); setIsCreateOpen(true); }} className="w-full md:w-auto px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2">
-                            <span className="text-xl leading-none">+</span> Giao việc (Ma trận)
+                <div className="relative z-10 w-full md:w-auto flex flex-col md:flex-row items-center gap-3">
+                    {/* NÚT CỦA KỸ SƯ / CHỦ TRẠI */}
+                    {!readOnly && mode !== 'worker' && (
+                        <>
+                            {/* Nút Xem Hòm Thư Sự Cố */}
+                            <button 
+                                onClick={() => setIsIncidentInboxOpen(true)}
+                                className="w-full md:w-auto px-6 py-3 bg-white text-rose-600 font-bold rounded-xl border border-rose-200 hover:bg-rose-50 shadow-sm transition-all flex items-center justify-center gap-2 relative"
+                            >
+                                🚨 Xem Báo cáo Sự cố
+                                {incidents.filter(i => i.status === 'PENDING').length > 0 && (
+                                    <span className="absolute -top-2 -right-2 w-6 h-6 bg-rose-500 text-white text-xs font-black rounded-full flex items-center justify-center shadow-md animate-bounce">
+                                        {incidents.filter(i => i.status === 'PENDING').length}
+                                    </span>
+                                )}
+                            </button>
+                            
+                            <button onClick={() => { setForm(initialForm); setIsCreateOpen(true); }} className="w-full md:w-auto px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 active:scale-95">
+                                <span className="text-xl leading-none">+</span> Giao việc (Ma trận)
+                            </button>
+                        </>
+                    )}
+
+                    {/* NÚT BÁO ĐỘNG KHẨN CẤP CỦA CÔNG NHÂN */}
+                    {mode === 'worker' && (
+                        <button 
+                            onClick={() => setIsIncidentOpen(true)}
+                            className="w-full md:w-auto px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl shadow-md shadow-rose-500/30 flex items-center justify-center gap-2 animate-pulse active:scale-95 transition-all"
+                        >
+                            <span className="text-xl leading-none">🚨</span> Báo cáo tôm bệnh
                         </button>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
 
             {/* THÔNG BÁO NHẮC NHỞ PHÂN CÔNG SOP */}
@@ -1255,6 +1338,135 @@ const TaskManagementPage = ({
                     </div>
                 </div>
             )}
+
+            {/* MODAL BÁO CÁO KHẨN CẤP */}
+            {isIncidentOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setIsIncidentOpen(false)}>
+                    <div className="bg-white max-w-md w-full p-0 rounded-[24px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center p-5 border-b border-rose-100 bg-rose-50/80">
+                            <h2 className="text-xl font-extrabold text-rose-700 flex items-center gap-2">🚨 Báo cáo Sự cố</h2>
+                            <button onClick={() => setIsIncidentOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white text-rose-500 hover:bg-rose-100 font-bold">&times;</button>
+                        </div>
+                        <form onSubmit={handleIncidentSubmit} className="p-5 flex flex-col gap-4">
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-sm font-bold text-slate-700">Xảy ra tại Ao nào? <span className="text-rose-500">*</span></label>
+                                <select required value={incidentForm.pond_id} onChange={e => setIncidentForm({ ...incidentForm, pond_id: e.target.value })} className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-100 outline-none font-bold">
+                                    <option value="">-- Chọn Ao xảy ra sự cố --</option>
+                                    {ponds.map(p => <option key={p.pond_id} value={p.pond_id}>{p.pond_name}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-sm font-bold text-slate-700">Mô tả tình trạng tôm <span className="text-rose-500">*</span></label>
+                                <textarea required rows="3" placeholder="Ví dụ: Tôm nổi đầu, tôm dạt bờ, rỗng ruột..." value={incidentForm.description} onChange={e => setIncidentForm({ ...incidentForm, description: e.target.value })} className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-100 outline-none resize-none" />
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-sm font-bold text-slate-700">Chụp ảnh mẫu bệnh (Rất quan trọng)</label>
+                                <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 relative">
+                                    <input type="file" accept="image/*" capture="environment" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {
+                                        const file = e.target.files[0];
+                                        if (file) setIncidentForm({ ...incidentForm, imageFile: file, previewUrl: URL.createObjectURL(file) });
+                                    }} />
+                                    {incidentForm.previewUrl ? (
+                                        <img src={incidentForm.previewUrl} alt="Preview" className="h-32 object-contain rounded-lg shadow-sm" />
+                                    ) : (
+                                        <div className="text-slate-500 font-medium"><span className="text-3xl block mb-1">📸</span> Nhấn để mở Camera</div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={saving}
+                                className="mt-2 w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black text-lg rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {saving ? (
+                                    <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Đang gửi dữ liệu...</>
+                                ) : 'BÁO ĐỘNG NGAY'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL HÒM THƯ SỰ CỐ DÀNH CHO KỸ SƯ */}
+            {isIncidentInboxOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setIsIncidentInboxOpen(false)}>
+                    <div className="bg-white max-w-3xl w-full rounded-[24px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center p-5 md:p-6 border-b border-slate-100 bg-slate-50 shrink-0">
+                            <div>
+                                <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">🚨 Báo cáo Sự cố Thực địa</h2>
+                                <p className="text-sm text-slate-500 font-medium mt-1">Danh sách các vấn đề khẩn cấp do Công nhân gửi lên</p>
+                            </div>
+                            <button onClick={() => setIsIncidentInboxOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white text-slate-500 hover:bg-rose-100 hover:text-rose-600 font-bold transition-colors">&times;</button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto p-5 md:p-6 bg-slate-50/50">
+                            {/* 🌟 CHỈ HIỂN THỊ SỰ CỐ PENDING */}
+                            {incidents.filter(i => i.status === 'PENDING').length === 0 ? (
+                                <div className="text-center py-12">
+                                    <span className="text-5xl mb-4 block">✅</span>
+                                    <h3 className="text-lg font-bold text-slate-600">Tuyệt vời! Không có sự cố nào đang chờ.</h3>
+                                    <p className="text-slate-500">Mọi ao nuôi đều đang trong tầm kiểm soát.</p>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-4">
+                                    {incidents.filter(i => i.status === 'PENDING').map(incident => (
+                                        <div key={incident.incident_id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:border-rose-300 transition-colors animate-in fade-in zoom-in-95 duration-200">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="px-2.5 py-1 bg-rose-100 text-rose-700 text-xs font-black uppercase rounded-lg border border-rose-200 shadow-sm">Tại: {incident.pond_name}</span>
+                                                    <span className="text-xs font-bold text-slate-400">{new Date(incident.created_at).toLocaleString('vi-VN')}</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <p className="text-slate-700 font-medium bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4">
+                                                <strong className="text-slate-800">Công nhân {incident.reporter_name}:</strong> "{incident.description}"
+                                            </p>
+
+                                            {incident.image_url && (
+                                                <div className="mb-4 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex justify-center p-2">
+                                                    <img src={`http://localhost:3000${incident.image_url}`} alt="Sự cố" className="max-h-[250px] object-contain rounded-lg shadow-sm" />
+                                                </div>
+                                            )}
+
+                                            {/* Đã bỏ bớt điều kiện check PENDING ở đây vì toàn bộ danh sách này đều là PENDING */}
+                                            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 flex-wrap">
+                                                <button 
+                                                    onClick={() => handleResolveIncident(incident.incident_id)}
+                                                    className="px-5 py-2.5 bg-emerald-50 text-emerald-600 font-bold rounded-xl border border-emerald-200 hover:bg-emerald-100 transition-all flex items-center gap-2"
+                                                >
+                                                    <span>✅</span> Đánh dấu đã xử lý xong
+                                                </button>
+                                                
+                                                <button 
+                                                    onClick={() => {
+                                                        navigate(`/${mode}/ai-diagnostic`, {
+                                                            state: {
+                                                                pondId: incident.pond_id,
+                                                                imageUrl: incident.image_url
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="px-5 py-2.5 bg-sky-50 text-sky-600 font-bold rounded-xl border border-sky-200 hover:bg-sky-100 transition-all flex items-center gap-2"
+                                                >
+                                                    <span>🤖</span> Đưa vào AI Phân tích
+                                                </button>
+
+                                                <button onClick={() => { setForm(initialForm); setIsIncidentInboxOpen(false); setIsCreateOpen(true); }} className="px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-md">
+                                                    Phân công xử lý ngay
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 };

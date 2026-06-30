@@ -396,4 +396,14 @@ export const notificationService = {
   markAsRead: (id) => apiClient.put(`/notifications/${id}/read`)
 };
 
+// =============== INCIDENT ENDPOINTS ===============
+export const incidentService = {
+  reportIncident: (formData) => apiClient.post('/incidents', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  getIncidents: () => apiClient.get('/incidents'),
+  resolveIncident: (incidentId) => apiClient.put(`/incidents/${incidentId}/resolve`),
+};
+
+
 export default apiClient;

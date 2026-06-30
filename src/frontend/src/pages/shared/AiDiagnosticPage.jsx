@@ -3,6 +3,7 @@ import axios from 'axios';
 import { showToast } from '../../utils/toast';
 import { pondService } from '../../services/api';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { useLocation } from 'react-router-dom';
 
 // --- HELPERS & COLORS ---
 const CHART_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#06b6d4', '#ec4899'];
@@ -64,6 +65,8 @@ const getFriendlyDiseaseName = (rawName) => {
 // COMPONENT CHÍNH
 // ============================================================================
 const AiDiagnosticPage = ({ roleLabel = 'Owner' }) => {
+  const location = useLocation();
+
   const [ponds, setPonds] = useState([]);
   const [selectedPond, setSelectedPond] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
@@ -86,6 +89,39 @@ const AiDiagnosticPage = ({ roleLabel = 'Owner' }) => {
   // --- STATE HỖ TRỢ ĐIỆN THOẠI (MOBILE) ---
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [showMobileSourceSelector, setShowMobileSourceSelector] = useState(false);
+
+  useEffect(() => {
+    if (location.state) {
+        const { pondId, imageUrl } = location.state;
+        
+        // 1. Tự động chọn Ao
+        if (pondId) {
+            setSelectedPond(pondId);
+        }
+
+        // 2. Tự động hiển thị Ảnh và biến đổi URL thành File Vật Lý
+        if (imageUrl) {
+            const fullImageUrl = `http://localhost:3000${imageUrl}`;
+            setPreviewUrl(fullImageUrl); // Hiển thị ảnh ngay lập tức
+            
+            // Tải ngầm (fetch) ảnh từ URL và đóng gói thành File object để AI hiểu
+            fetch(fullImageUrl)
+                .then(res => res.blob())
+                .then(blob => {
+                    // Đặt tên giả định cho file tải về
+                    const file = new File([blob], "incident_report_image.jpg", { type: blob.type });
+                    setSelectedFile(file);
+                })
+                .catch(err => {
+                    console.error("Lỗi chuyển đổi ảnh từ Báo cáo sự cố:", err);
+                    showToast({ title: 'Không thể trích xuất ảnh tự động', type: 'error' });
+                });
+        }
+        
+        // Xóa state trong history để nếu F5 lại trang sẽ không bị load lại ảnh
+        window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     fetchPonds();

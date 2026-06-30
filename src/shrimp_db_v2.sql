@@ -296,6 +296,20 @@ CREATE TABLE notifications (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE incident_reports (
+    incident_id BIGSERIAL PRIMARY KEY,
+    farm_id BIGINT REFERENCES farms(farm_id) ON DELETE CASCADE,
+    pond_id BIGINT REFERENCES ponds(pond_id) ON DELETE CASCADE,
+    reported_by BIGINT REFERENCES users(user_id),
+    description TEXT NOT NULL,
+    image_url TEXT,
+    status VARCHAR(30) DEFAULT 'PENDING',
+    resolved_by BIGINT REFERENCES users(user_id),
+    resolved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_incidents_pond ON incident_reports(pond_id, status);
+
 -- =========================================================================
 -- 9. TẠO INDEXES (Tối ưu truy vấn)
 -- =========================================================================
