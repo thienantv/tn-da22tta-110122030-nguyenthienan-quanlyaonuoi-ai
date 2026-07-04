@@ -402,6 +402,7 @@ export const incidentService = {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
   getIncidents: () => apiClient.get('/incidents'),
+  
   resolveIncident: (incidentId) => apiClient.put(`/incidents/${incidentId}/resolve`),
 };
 

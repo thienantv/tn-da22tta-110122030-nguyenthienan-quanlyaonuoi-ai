@@ -252,6 +252,7 @@ const seasonService = {
     
     return { success: true };
   },
+  
   // 2. Chủ trại duyệt yêu cầu
   async reviewHarvestRequest(seasonId, isApproved) {
     const status = isApproved ? 'APPROVED' : 'REJECTED';
