@@ -124,12 +124,12 @@ export const Sidebar = () => {
             { label: 'Thông báo', icon: 'notifications', path: '/notifications' }
           ]
         },
-        { 
+        {
           group: 'CÔNG VIỆC', items: [
             { label: 'Công việc được giao', icon: 'tasks', path: '/worker/tasks' },
             // THÊM DÒNG NÀY VÀO DƯỚI TASK CỦA WORKER
-            { label: 'Nhập môi trường', icon: 'environment', path: '/worker/environment' } 
-          ] 
+            { label: 'Nhập môi trường', icon: 'environment', path: '/worker/environment' }
+          ]
         }
       ]
     };
@@ -164,6 +164,23 @@ export const Sidebar = () => {
     const parts = name.split(/\s+/).filter(Boolean);
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
     return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
+  };
+
+  // Xử lý đường dẫn ảnh thông minh
+  const getAvatarUrl = (url) => {
+    if (!url) return '';
+    
+    let finalUrl = url;
+    
+    // Nếu trong Database lỡ lưu dính chữ localhost, tự động thay nó bằng IP (ví dụ: 192.168.1.x)
+    if (finalUrl.includes('localhost')) {
+      finalUrl = finalUrl.replace('localhost', window.location.hostname);
+    }
+    
+    if (finalUrl.startsWith('http')) return finalUrl;
+
+    const cleanUrl = finalUrl.startsWith('/') ? finalUrl : `/${finalUrl}`;
+    return `http://${window.location.hostname}:3000${cleanUrl}`;
   };
 
   return (
@@ -301,7 +318,12 @@ export const Sidebar = () => {
             <div className="flex items-center gap-3 overflow-hidden">
               <div className="w-10 h-10 rounded-full bg-slate-700 border-2 border-slate-600 overflow-hidden shrink-0 flex items-center justify-center text-white font-bold">
                 {user?.avatar_url ? (
-                  <img src={user.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                  // <img
+                  //   src={user.avatar_url.startsWith('http') ? user.avatar_url : `http://localhost:3000${user.avatar_url}`}
+                  //   alt="Avatar"
+                  //   className="w-full h-full object-cover"
+                  // />
+                  <img src={getAvatarUrl(user?.avatar_url)} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
                   <span>{getInitials(user?.full_name)}</span>
                 )}

@@ -102,6 +102,8 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  const [selectedPondFilter, setSelectedPondFilter] = useState('ALL');
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showHarvestModal, setShowHarvestModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -167,6 +169,15 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
     return found ? (found.pond_name || found.pond_code) : '-';
   }, [ponds]);
 
+  // Khởi tạo danh sách nút bấm chọn Ao (Có thêm nút Tất cả)
+  const pondOptions = useMemo(() => {
+    const options = (ponds || []).map((p) => ({
+      id: String(p.pond_id || p.id),
+      label: `${p.pond_code || 'Ao'} ${p.pond_name ? `- ${p.pond_name}` : ''}`
+    }));
+    return [{ id: 'ALL', label: 'Tất cả các ao' }, ...options];
+  }, [ponds]);
+
   const seasonStatusOptions = [
     { value: 'ALL', label: 'Tất cả trạng thái' },
     { value: 'CHUAN_BI_NUOI', label: 'Chuẩn bị nuôi' },
@@ -187,10 +198,13 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
       const from = dateFrom ? toDateOnly(new Date(dateFrom)) : null;
       const startD = s.start_date ? toDateOnly(new Date(s.start_date)) : null;
       const matchDateExact = !from || (startD && startD.getTime() === from.getTime());
+      
+      // ĐIỀU KIỆN LỌC THEO AO
+      const matchPond = selectedPondFilter === 'ALL' || String(s.pond_id) === String(selectedPondFilter);
 
-      return matchSearch && matchState && matchTech && matchDateExact;
+      return matchSearch && matchState && matchTech && matchDateExact && matchPond;
     }).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  }, [seasons, searchTerm, stateFilter, technicianFilter, dateFrom, isOwner, getPondName]);
+  }, [seasons, searchTerm, stateFilter, technicianFilter, dateFrom, isOwner, getPondName, selectedPondFilter]);
 
   const eligiblePonds = useMemo(() => ponds.filter(p => {
     if (normalizeUpper(p.usage_status) === 'NGUNG_SU_DUNG') return false;
@@ -213,11 +227,11 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   const paginatedSeasons = filteredSeasons.slice(startIndex, endIndex);
 
   const stats = useMemo(() => ({
-    total: seasons.length,
-    preparing: seasons.filter(s => normalizeSeasonStatus(s.status) === 'CHUAN_BI_NUOI').length,
-    running: seasons.filter(s => normalizeSeasonStatus(s.status) === 'DANG_NUOI').length,
-    completed: seasons.filter(s => normalizeSeasonStatus(s.status) === 'DA_THU_HOACH').length,
-  }), [seasons]);
+    total: filteredSeasons.length,
+    preparing: filteredSeasons.filter(s => normalizeSeasonStatus(s.status) === 'CHUAN_BI_NUOI').length,
+    running: filteredSeasons.filter(s => normalizeSeasonStatus(s.status) === 'DANG_NUOI').length,
+    completed: filteredSeasons.filter(s => normalizeSeasonStatus(s.status) === 'DA_THU_HOACH').length,
+  }), [filteredSeasons]);
 
   const seasonChartData = [
     { label: 'Đang nuôi', value: stats.running, color: '#10b981' },
@@ -226,13 +240,13 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   ].filter(d => d.value > 0);
 
   const pondsProgress = useMemo(() => {
-    const runningSeasons = seasons.filter(s => normalizeSeasonStatus(s.status) === 'DANG_NUOI');
+    const runningSeasons = filteredSeasons.filter(s => normalizeSeasonStatus(s.status) === 'DANG_NUOI');
     return runningSeasons.map((s, idx) => ({
       label: getPondName(s.pond_id),
       value: seasonDays(s) === '-' ? 0 : Number(seasonDays(s)),
       color: CHART_COLORS[idx % CHART_COLORS.length]
     })).slice(0, 6);
-  }, [seasons, getPondName]);
+  }, [filteredSeasons, getPondName]);
 
   const getFilteredProducts = useCallback((typeId) => {
     if (!typeId) return products;
@@ -464,6 +478,24 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
           <strong className="block text-3xl font-black text-slate-800">{filteredSeasons.length > 0 ? formatRoundedNumber(filteredSeasons.reduce((s, i) => s + (seasonDays(i) === '-' ? 0 : Number(seasonDays(i))), 0) / filteredSeasons.length) : '-'}</strong>
           <div className="mt-2"><Sparkline color="#f59e0b" /></div>
         </div>
+      </div>
+
+      <div className="flex items-center gap-3 overflow-x-auto pb-4 mb-2 scrollbar-hide">
+        {pondOptions.map((pond) => {
+          const isActive = String(selectedPondFilter) === String(pond.id);
+          return (
+            <button
+              key={pond.id}
+              onClick={() => { 
+                setSelectedPondFilter(pond.id); 
+                setCurrentPage(1); // Reset về trang 1 khi đổi ao
+              }}
+              className={`whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm ${isActive ? 'bg-slate-800 text-white shadow-md scale-105' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}
+            >
+              {pond.label}
+            </button>
+          )
+        })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">

@@ -101,7 +101,7 @@ const AiDiagnosticPage = ({ roleLabel = 'Owner' }) => {
 
         // 2. Tự động hiển thị Ảnh và biến đổi URL thành File Vật Lý
         if (imageUrl) {
-            const fullImageUrl = `http://localhost:3000${imageUrl}`;
+            const fullImageUrl = `http://${window.location.hostname}:3000${imageUrl}`;
             setPreviewUrl(fullImageUrl); // Hiển thị ảnh ngay lập tức
             
             // Tải ngầm (fetch) ảnh từ URL và đóng gói thành File object để AI hiểu
@@ -145,9 +145,9 @@ const AiDiagnosticPage = ({ roleLabel = 'Owner' }) => {
     try {
       setLoadingHistory(true);
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:3000/api/diseases/history', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await axios.get(`http://${window.location.hostname}:3000/api/diseases/history`, {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
       setHistory(res?.data?.data || []);
     } catch (err) {
       console.error("Chưa tải được lịch sử", err);
@@ -247,7 +247,11 @@ const AiDiagnosticPage = ({ roleLabel = 'Owner' }) => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token'); 
-      const response = await axios.post('http://localhost:3000/api/diseases/predict', formData, {
+      // const response = await axios.post('http://localhost:3000/api/diseases/predict', formData, {
+      //   headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` }
+      // });
+
+      const response = await axios.post(`http://${window.location.hostname}:3000/api/diseases/predict`, formData, {
         headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` }
       });
 
@@ -541,7 +545,7 @@ const AiDiagnosticPage = ({ roleLabel = 'Owner' }) => {
                 <tr key={record.prediction_id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-6 py-4 text-center">
                     {record.image_url ? (
-                      <img src={`http://localhost:3000${record.image_url}`} alt="Mẫu" className="w-12 h-12 object-cover rounded-xl border border-slate-200 shadow-sm mx-auto" />
+                      <img src={`http://${window.location.hostname}:3000${record.image_url}`} alt="Mẫu" className="w-12 h-12 object-cover rounded-xl border border-slate-200 shadow-sm mx-auto" />
                     ) : (
                       <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center border border-slate-200 text-xl mx-auto shadow-sm">🦐</div>
                     )}
@@ -620,7 +624,7 @@ const AiDiagnosticPage = ({ roleLabel = 'Owner' }) => {
 
               {selectedRecord.image_url && (
                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2 mb-6 flex justify-center">
-                  <img src={`http://localhost:3000${selectedRecord.image_url}`} alt="Mẫu vật" className="max-w-full max-h-[300px] object-contain rounded-xl block shadow-sm" />
+                  <img src={`http://${window.location.hostname}:3000${selectedRecord.image_url}`} alt="Mẫu vật" className="max-w-full max-h-[300px] object-contain rounded-xl block shadow-sm" />
                 </div>
               )}
 

@@ -243,6 +243,7 @@ const TaskManagementPage = ({
 
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(7); // Mặc định hiển thị theo Tuần (7 ngày)
+    const [hasInitialJumped, setHasInitialJumped] = useState(false);
 
     const [selectedTask, setSelectedTask] = useState(null);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -413,7 +414,7 @@ const TaskManagementPage = ({
             if (incidentForm.imageFile) {
                 formData.append('image', incidentForm.imageFile);
             }
-            
+
             // Chỉ gửi 1 lần duy nhất
             await incidentService.reportIncident(formData);
 
@@ -430,10 +431,10 @@ const TaskManagementPage = ({
     const handleResolveIncident = async (incidentId) => {
         try {
             setIncidents(prev => prev.filter(i => i.incident_id !== incidentId));
-            
+
             await incidentService.resolveIncident(incidentId);
             showToast({ title: 'Đã đánh dấu xử lý xong sự cố!', type: 'success' });
-            
+
             // Tải lại danh sách để hòm thư tự động cập nhật và làm mất chấm đỏ
             const res = await incidentService.getIncidents();
             setIncidents(res?.data?.data || []);
@@ -654,6 +655,29 @@ const TaskManagementPage = ({
         };
     };
 
+    const handleJumpToToday = useCallback(() => {
+        if (tasksGroupedByDate.length === 0) return;
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        const todayIndex = tasksGroupedByDate.findIndex(group => group.dateStr === todayStr);
+
+        if (todayIndex !== -1) {
+            const targetPage = Math.floor(todayIndex / pageSize) + 1;
+            setCurrentPage(targetPage);
+        }
+    }, [tasksGroupedByDate, pageSize]);
+
+    useEffect(() => {
+        if (!loading && tasksGroupedByDate.length > 0 && !hasInitialJumped) {
+            handleJumpToToday();
+            setHasInitialJumped(true);
+        }
+    }, [loading, tasksGroupedByDate, hasInitialJumped, handleJumpToToday]);
+
     if (loading && tasks.length === 0) return <div className="flex items-center justify-center h-screen"><div className="w-12 h-12 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin"></div></div>;
 
     return (
@@ -674,7 +698,7 @@ const TaskManagementPage = ({
                     {!readOnly && mode !== 'worker' && (
                         <>
                             {/* Nút Xem Hòm Thư Sự Cố */}
-                            <button 
+                            <button
                                 onClick={() => setIsIncidentInboxOpen(true)}
                                 className="w-full md:w-auto px-6 py-3 bg-white text-rose-600 font-bold rounded-xl border border-rose-200 hover:bg-rose-50 shadow-sm transition-all flex items-center justify-center gap-2 relative"
                             >
@@ -685,7 +709,7 @@ const TaskManagementPage = ({
                                     </span>
                                 )}
                             </button>
-                            
+
                             <button onClick={() => { setForm(initialForm); setIsCreateOpen(true); }} className="w-full md:w-auto px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 active:scale-95">
                                 <span className="text-xl leading-none">+</span> Giao việc (Ma trận)
                             </button>
@@ -694,7 +718,7 @@ const TaskManagementPage = ({
 
                     {/* NÚT BÁO ĐỘNG KHẨN CẤP CỦA CÔNG NHÂN */}
                     {mode === 'worker' && (
-                        <button 
+                        <button
                             onClick={() => setIsIncidentOpen(true)}
                             className="w-full md:w-auto px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl shadow-md shadow-rose-500/30 flex items-center justify-center gap-2 animate-pulse active:scale-95 transition-all"
                         >
@@ -954,7 +978,16 @@ const TaskManagementPage = ({
                         </select>
                         <span>({tasksGroupedByDate.length > 0 ? startIndex + 1 : 0} - {endIndex} / {tasksGroupedByDate.length} mốc ngày)</span>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                        <button
+                            onClick={() => {
+                                handleJumpToToday();
+                                showToast({ title: 'Đã chuyển đến Lịch làm việc hôm nay', type: 'success' });
+                            }}
+                            className="px-4 py-2 mr-2 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 font-bold rounded-xl shadow-sm transition-colors"
+                        >
+                            📍 Hôm nay
+                        </button>
                         <button onClick={() => setCurrentPage(p => p - 1)} disabled={safePage <= 1} className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition-colors font-bold shadow-sm">Trước</button>
                         <div className="flex items-center justify-center px-4 py-2 bg-sky-50 text-sky-700 font-bold rounded-xl border border-sky-100 shadow-inner">{safePage} / {totalPages || 1}</div>
                         <button onClick={() => setCurrentPage(p => p + 1)} disabled={safePage >= totalPages} className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition-colors font-bold shadow-sm">Sau</button>
@@ -1401,7 +1434,7 @@ const TaskManagementPage = ({
                             </div>
                             <button onClick={() => setIsIncidentInboxOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white text-slate-500 hover:bg-rose-100 hover:text-rose-600 font-bold transition-colors">&times;</button>
                         </div>
-                        
+
                         <div className="flex-1 overflow-y-auto p-5 md:p-6 bg-slate-50/50">
                             {/* 🌟 CHỈ HIỂN THỊ SỰ CỐ PENDING */}
                             {incidents.filter(i => i.status === 'PENDING').length === 0 ? (
@@ -1420,7 +1453,7 @@ const TaskManagementPage = ({
                                                     <span className="text-xs font-bold text-slate-400">{new Date(incident.created_at).toLocaleString('vi-VN')}</span>
                                                 </div>
                                             </div>
-                                            
+
                                             <p className="text-slate-700 font-medium bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4">
                                                 <strong className="text-slate-800">Công nhân {incident.reporter_name}:</strong> "{incident.description}"
                                             </p>
@@ -1433,14 +1466,14 @@ const TaskManagementPage = ({
 
                                             {/* Đã bỏ bớt điều kiện check PENDING ở đây vì toàn bộ danh sách này đều là PENDING */}
                                             <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 flex-wrap">
-                                                <button 
+                                                <button
                                                     onClick={() => handleResolveIncident(incident.incident_id)}
                                                     className="px-5 py-2.5 bg-emerald-50 text-emerald-600 font-bold rounded-xl border border-emerald-200 hover:bg-emerald-100 transition-all flex items-center gap-2"
                                                 >
                                                     <span>✅</span> Đánh dấu đã xử lý xong
                                                 </button>
-                                                
-                                                <button 
+
+                                                <button
                                                     onClick={() => {
                                                         navigate(`/${mode}/ai-diagnostic`, {
                                                             state: {

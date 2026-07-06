@@ -8,7 +8,7 @@ const productService = {
     // 2. Tổng số sản phẩm (Thuộc về riêng farm_id này)
     const prodRes = await db.query('SELECT COUNT(*) FROM products WHERE farm_id = $1', [farmId])
     
-    // 3. Phân bố SP theo danh mục (Sử dụng farm_id ở bảng products, không dùng ở product_categories)
+    // 3. Phân bố SP theo danh mục
     const catStats = await db.query(`
       SELECT pc.category_name as label, COUNT(p.product_id) as value
       FROM product_categories pc
@@ -26,13 +26,26 @@ const productService = {
       HAVING COUNT(product_id) > 0
     `, [farmId])
 
+    // 🌟 5. THÊM MỚI: Truy vấn Top 5 Sản phẩm được dùng nhiều nhất từ bảng nhật ký
+    const topProductsRes = await db.query(`
+      SELECT 
+          p.product_name AS label, 
+          COUNT(pul.usage_id)::INT AS value
+      FROM products p
+      JOIN product_usage_logs pul ON p.product_id = pul.product_id
+      WHERE p.farm_id = $1
+      GROUP BY p.product_id, p.product_name
+      ORDER BY value DESC
+      LIMIT 5
+    `, [farmId])
+
     return {
       totalCategories: parseInt(catRes.rows[0].count),
       totalProducts: parseInt(prodRes.rows[0].count),
       categoryStats: catStats.rows,
       supplierStats: supStats.rows,
       topCategory: catStats.rows.sort((a, b) => b.value - a.value)[0] || null,
-      topProducts: [] 
+      topProducts: topProductsRes.rows // Trả về dữ liệu thực tế đã truy vấn
     }
   },
 

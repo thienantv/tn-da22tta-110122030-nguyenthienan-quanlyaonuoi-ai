@@ -2,7 +2,7 @@ const pool = require('../config/database');
 const FormData = require('form-data');
 const fs = require('fs');
 const axios = require('axios'); // Vẫn giữ axios để gọi sang Python
-const { GoogleGenerativeAI } = require('@google/generative-ai'); // 🌟 IMPORT THƯ VIỆN MỚI
+const { GoogleGenerativeAI } = require('@google/generative-ai'); //  IMPORT THƯ VIỆN MỚI
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 // Khởi tạo bộ máy Google AI
@@ -41,9 +41,15 @@ const diseaseController = {
       // 🌟 BAO BỌC VIỆC GỌI API BẰNG ĐỒNG HỒ ĐO THỜI GIAN (VÀ CHỈ KHAI BÁO 1 LẦN)
       console.time("🌐 [Network] Thời gian gọi API phân loại CNN qua Python");
 
+      // const aiResponse = await axios.post('http://127.0.0.1:8000/ai/predict-disease', form, {
+      //   headers: { ...form.getHeaders() },
+      //   timeout: 8000
+      // });
+
       const aiResponse = await axios.post('http://127.0.0.1:8000/ai/predict-disease', form, {
-        headers: { ...form.getHeaders() },
-        timeout: 8000
+        headers: {
+          ...form.getHeaders()
+        }
       });
 
       console.timeEnd("🌐 [Network] Thời gian gọi API phân loại CNN qua Python");

@@ -34,6 +34,12 @@ const incidentRoutes = require('./routes/incidentRoutes')
 // Initialize Express
 const app = express()
 
+app.use(cors({
+    origin: '*', // Cho phép mọi thiết bị (localhost, mạng LAN, điện thoại) truy cập
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // Lắp camera theo dõi mọi API gửi tới
 app.use((req, res, next) => {
     console.log(`\n🚨 CÓ NGƯỜI GỌI VÀO NODE.JS: ${req.method} ${req.url}`);
@@ -64,40 +70,15 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date() })
 })
 
-const fs = require('fs');
-
-// 🌟 RADAR QUÉT ẢNH TỰ ĐỘNG BẤT CHẤP THƯ MỤC 🌟
-app.get('/uploads/:filename', (req, res) => {
-    const fileName = req.params.filename;
-    
-    // Lập danh sách 5 nơi tệp tin dễ bị giấu nhất trong dự án
-    const possiblePaths = [
-        path.join(process.cwd(), 'uploads', fileName),        // Gốc dự án
-        path.join(__dirname, '../uploads', fileName),         // Lùi 1 cấp (Nếu app.js ở trong src)
-        path.join(__dirname, 'uploads', fileName),            // Ngang hàng app.js
-        path.join(process.cwd(), 'public/uploads', fileName), // Trong thư mục public
-        path.join(process.cwd(), 'src/uploads', fileName)     // Trong thư mục src
-    ];
-
-    // Quét từng nơi, thấy ở đâu thì lôi ra trả về ngay lập tức
-    for (let targetPath of possiblePaths) {
-        if (fs.existsSync(targetPath)) {
-            res.setHeader('CrossOrigin-Resource-Policy', 'cross-origin'); // Fix lỗi chặn hiển thị chéo
-            return res.sendFile(targetPath);
-        }
-    }
-
-    // Nếu tìm hết 5 chỗ vẫn không có, in ra báo động đỏ
-    console.log(`❌ THẤT BẠI: File [${fileName}] THỰC SỰ KHÔNG CÓ TRÊN Ổ CỨNG!`);
-    res.status(404).send('Không tìm thấy ảnh');
-});
-
 // ============================================================================
 // HỆ THỐNG ĐƯỜNG DẪN API (ROUTES)
 // ============================================================================
 
 // 1. Route không cần khóa bảo mật (Public)
 app.use('/api/auth', authRoutes)
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // 2. Các route yêu cầu phải đăng nhập (Bảo mật bằng authenticateToken)
 app.use('/api/users/matrix', authenticateToken, require('./routes/userRoutes'));
@@ -169,18 +150,27 @@ app.locals.io = io
 const startAllCronJobs = require('./cron/index.js'); 
 
 // 1. ĐỊNH NGHĨA HÀM KHỞI ĐỘNG SERVER
+// const startServer = async () => {
+//   server.listen(PORT, () => {
+//     logger.info(`
+//     ===================================
+//     ✅ Server started on port ${PORT}
+//     🌍 Environment: ${process.env.NODE_ENV}
+//     📡 API URL: ${process.env.API_URL || 'http://localhost:' + PORT}
+//     ===================================
+//     `);
+//   });
+
+//   // 🌟 KÍCH HOẠT TOÀN BỘ CÁC TIẾN TRÌNH CHẠY NGẦM 🌟
+//   startAllCronJobs();
+// };
+
 const startServer = async () => {
-  server.listen(PORT, () => {
-    logger.info(`
-    ===================================
-    ✅ Server started on port ${PORT}
-    🌍 Environment: ${process.env.NODE_ENV}
-    📡 API URL: ${process.env.API_URL || 'http://localhost:' + PORT}
-    ===================================
-    `);
+  // Thêm '0.0.0.0' vào đây để cho phép mọi thiết bị trong mạng LAN truy cập
+  server.listen(PORT, '0.0.0.0', () => {
+    logger.info(`✅ Server started on port ${PORT}`);
   });
 
-  // 🌟 KÍCH HOẠT TOÀN BỘ CÁC TIẾN TRÌNH CHẠY NGẦM 🌟
   startAllCronJobs();
 };
 

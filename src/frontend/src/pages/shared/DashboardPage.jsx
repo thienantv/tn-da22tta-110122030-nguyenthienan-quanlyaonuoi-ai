@@ -82,7 +82,8 @@ const DashboardPage = ({ roleLabel = 'Owner' }) => {
           // 🌟 LẤY DỮ LIỆU CHẨN ĐOÁN AI TỪ BACKEND
           try {
             const token = localStorage.getItem('token');
-            const aiRes = await axios.get('http://localhost:3000/api/diseases/history', {
+            // Chú ý: Dùng dấu nháy ngược (`) bao quanh toàn bộ đường link
+            const aiRes = await axios.get(`http://${window.location.hostname}:3000/api/diseases/history`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const historyData = aiRes?.data?.data || [];
@@ -122,7 +123,7 @@ const DashboardPage = ({ roleLabel = 'Owner' }) => {
             setUsers(fetchedUsers.filter(u => String(u.farm_id || '') === myFarmId));
 
             const fetchedExpenses = expensesRes?.data?.data || [];
-            setExpenses(fetchedExpenses.filter(e => String(e.farm_id || '') === myFarmId));
+            setExpenses(fetchedExpenses);
             
           } else if (isTechnician) {
             const tasksRes = await taskService.getAllTasks().catch(() => ({ data: { data: [] } }));
@@ -167,24 +168,29 @@ const DashboardPage = ({ roleLabel = 'Owner' }) => {
     ].filter(d => d.value > 0);
   }, [ponds]);
 
+  // Nhóm chi phí dựa trên Tên danh mục vật tư (Cám, Thuốc, Vi sinh...)
   const ownerCostChart = useMemo(() => {
-    let dien = 0, luong = 0, baoTri = 0, vatTu = 0, khac = 0;
+    const groups = {};
+    
     expenses.forEach(e => {
       const amt = Number(e.amount || 0);
-      const cat = normalizeUpper(e.category);
-      if (cat === 'ELECTRICITY') dien += amt;
-      else if (cat === 'LABOR') luong += amt;
-      else if (cat === 'MAINTENANCE') baoTri += amt;
-      else if (cat === 'MATERIAL') vatTu += amt;
-      else khac += amt;
+      // Lấy tên danh mục vật tư từ Backend gửi về, nếu không có thì gộp vào nhóm "Vật tư khác"
+      const categoryName = e.product_category_name || 'Vật tư khác';
+      
+      if (!groups[categoryName]) {
+        groups[categoryName] = 0;
+      }
+      groups[categoryName] += amt;
     });
-    return [
-      { label: 'Vật tư', value: vatTu, color: '#f59e0b' },
-      { label: 'Điện năng', value: dien, color: '#0ea5e9' },
-      { label: 'Nhân công', value: luong, color: '#10b981' },
-      { label: 'Bảo trì', value: baoTri, color: '#8b5cf6' },
-      { label: 'Khác', value: khac, color: '#64748b' }
-    ].filter(d => d.value > 0);
+
+    // Chuyển đổi dữ liệu cho biểu đồ Recharts và gắn màu động
+    return Object.keys(groups)
+      .map((key, index) => ({
+        label: key,
+        value: groups[key],
+        color: CHART_COLORS[index % CHART_COLORS.length]
+      }))
+      .sort((a, b) => b.value - a.value); // Sắp xếp vật tư tốn nhiều tiền nhất lên đầu
   }, [expenses]);
 
   const taskChartData = useMemo(() => {
@@ -322,7 +328,7 @@ const DashboardPage = ({ roleLabel = 'Owner' }) => {
           {/* Chart 2: Chi phí / Tiến độ */}
           <div className="relative bg-white p-5 md:p-6 rounded-[24px] border border-slate-100 shadow-sm flex flex-col h-[320px] overflow-hidden">
              {loading && <div className="absolute inset-0 z-10 bg-white/40 backdrop-blur-[2px] transition-all"></div>}
-             <h3 className="font-extrabold text-slate-800 text-lg mb-4 relative z-0">{isOwner ? 'Cơ cấu chi phí' : 'Tiến độ công việc'}</h3>
+             <h3 className="font-extrabold text-slate-800 text-lg mb-4 relative z-0">{isOwner ? 'Cơ cấu chi phí vật tư' : 'Tiến độ công việc'}</h3>
              <div className="flex-1 flex items-center relative z-0">
                 <div className="w-1/2 h-[180px]">
                   <ResponsiveContainer width="100%" height={180}>
