@@ -476,16 +476,38 @@ const TaskManagementPage = ({
         loadInitialData();
     }, [fetchTasks, readOnly, mode]);
 
+    // Bộ lọc bọc thép cho cả Kỹ sư và Công nhân
+    const validTasks = useMemo(() => {
+        // 1. Chủ trại thì được xem tất cả
+        if (mode === 'owner') return tasks;
+        
+        // 2. Lấy danh sách ID các Ao hợp lệ hiện tại (Của kỹ sư đang quản lý, hoặc của công nhân đang được phân công)
+        const currentPondIds = ponds.map(p => String(p.pond_id));
+        
+        // 3. Lọc VÒNG 1: Xóa sổ toàn bộ công việc thuộc về Ao cũ đã bàn giao cho người khác
+        let filtered = tasks.filter(t => currentPondIds.includes(String(t.pond_id)));
+
+        // 4. Lọc VÒNG 2: Nếu là Công nhân, chỉ hiển thị việc mà công nhân đó ĐƯỢC GIAO TÊN đích danh
+        if (mode === 'worker') {
+            filtered = filtered.filter(t => 
+                t.assigned_workers_list && 
+                t.assigned_workers_list.some(w => String(w.worker_id) === String(user?.user_id || user?.id))
+            );
+        }
+        
+        return filtered;
+    }, [tasks, ponds, mode, user]);
+
     const availableSeasons = useMemo(() => {
-        let filtered = tasks;
+        let filtered = validTasks;
         if (filterPond) {
             filtered = filtered.filter(t => String(t.pond_id) === String(filterPond));
         }
         const uniqueIds = [...new Set(filtered.map(t => t.season_id).filter(Boolean))];
         return uniqueIds.map(id => ({ id, name: tasks.find(t => t.season_id === id)?.season_name || `Mùa vụ ${id}` }));
-    }, [tasks, filterPond]);
+    }, [validTasks, filterPond]);
 
-    const engineers = useMemo(() => [...new Set(tasks.map(t => t.assigned_by).filter(Boolean))].map(id => ({ id, name: tasks.find(t => t.assigned_by === id)?.creator_name || `Kỹ sư ID: ${id}` })), [tasks]);
+    const engineers = useMemo(() => [...new Set(validTasks.map(t => t.assigned_by).filter(Boolean))].map(id => ({ id, name: validTasks.find(t => t.assigned_by === id)?.creator_name || `Kỹ sư ID: ${id}` })), [validTasks]);
 
     // 🌟 ĐÃ NÂNG CẤP: LỌC AO 'DANG_XU_LY' NẾU TYPE LÀ '1' VÀ LOẠI BỎ HẠN CHẾ VỀ NHÂN CÔNG BẬN
     const handleTypeChange = async (e) => {
@@ -553,7 +575,7 @@ const TaskManagementPage = ({
     const hasActiveFilters = filterType || filterPond || filterSeason || filterEngineer || filterWorker || filterStatus !== 'ALL';
 
     const stats = useMemo(() => {
-        const computedTasks = tasks.map(t => ({ ...t, computedStatus: getComputedStatus(t) }));
+        const computedTasks = validTasks.map(t => ({ ...t, computedStatus: getComputedStatus(t) }));
         return {
             total: computedTasks.length,
             pending: computedTasks.filter(t => t.computedStatus === 'PENDING').length,
@@ -561,14 +583,14 @@ const TaskManagementPage = ({
             completed: computedTasks.filter(t => t.computedStatus === 'COMPLETED').length,
             overdue: computedTasks.filter(t => t.computedStatus === 'OVERDUE').length,
         };
-    }, [tasks]);
+    }, [validTasks]);
 
     const unassignedUpcomingTasks = useMemo(() => {
         const now = new Date();
         const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
         const tomorrowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
 
-        return tasks.filter(t => {
+        return validTasks.filter(t => {
             if (getComputedStatus(t) !== 'PENDING') return false;
             if (t.assigned_workers_list?.length > 0) return false;
             if (!t.start_date) return false;
@@ -576,7 +598,7 @@ const TaskManagementPage = ({
             const taskStart = new Date(t.start_date);
             return taskStart >= tomorrowStart && taskStart <= tomorrowEnd;
         });
-    }, [tasks]);
+    }, [validTasks]);
 
     const taskStatusChartData = [
         { label: 'Đang thực hiện', value: stats.progress, color: '#0ea5e9' },
@@ -587,12 +609,12 @@ const TaskManagementPage = ({
 
     const taskTypeChartData = useMemo(() => {
         const counts = {};
-        tasks.forEach(t => { const l = t.type_name || t.task_type || 'Khác'; counts[l] = (counts[l] || 0) + 1; });
+        validTasks.forEach(t => { const l = t.type_name || t.task_type || 'Khác'; counts[l] = (counts[l] || 0) + 1; });
         return Object.keys(counts).map((key, idx) => ({ label: key, value: counts[key], color: CHART_COLORS[idx % CHART_COLORS.length] }));
-    }, [tasks]);
+    }, [validTasks]);
 
     const filteredTasks = useMemo(() => {
-        return tasks.filter(task => {
+        return validTasks.filter(task => {
             const matchType = !filterType || String(task.type_id) === String(filterType);
             const matchPond = !filterPond || String(task.pond_id) === String(filterPond);
             const matchSeason = !filterSeason || String(task.season_id) === String(filterSeason);
@@ -604,7 +626,7 @@ const TaskManagementPage = ({
             const matchStatus = filterStatus === 'ALL' || String(getComputedStatus(task)) === String(filterStatus);
             return matchType && matchPond && matchSeason && matchEngineer && matchWorker && matchStatus;
         }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
-    }, [tasks, filterType, filterPond, filterSeason, filterEngineer, filterWorker, filterStatus]);
+    }, [validTasks, filterType, filterPond, filterSeason, filterEngineer, filterWorker, filterStatus]);
 
     const tasksGroupedByDate = useMemo(() => {
         const groups = {};

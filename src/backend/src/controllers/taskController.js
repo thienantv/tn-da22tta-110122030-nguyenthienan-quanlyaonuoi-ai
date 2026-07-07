@@ -1,16 +1,16 @@
 const pool = require('../config/database');
 
 const getTaskDurationHours = (typeId) => {
-    switch (String(typeId)) {
-        case '1': return 4; // Cải tạo & Xử lý: Tối đa 4h
-        case '2': return 1; // Cho ăn: Tối đa 1h
-        case '3': return 2; // Xử lý nước: Tối đa 2h
-        case '4': return 2; // Xi phong: Tối đa 2h
-        case '5': return 1; // Đo môi trường: Tối đa 1h
-        case '6': return 8; // Thu hoạch: Tối đa 8h
-        case '7': return 2; // Khác: Tối đa 2h
-        default: return 2;
-    }
+  switch (String(typeId)) {
+    case '1': return 4; // Cải tạo & Xử lý: Tối đa 4h
+    case '2': return 1; // Cho ăn: Tối đa 1h
+    case '3': return 2; // Xử lý nước: Tối đa 2h
+    case '4': return 2; // Xi phong: Tối đa 2h
+    case '5': return 1; // Đo môi trường: Tối đa 1h
+    case '6': return 8; // Thu hoạch: Tối đa 8h
+    case '7': return 2; // Khác: Tối đa 2h
+    default: return 2;
+  }
 };
 
 const taskController = {
@@ -64,13 +64,23 @@ const taskController = {
 
       // Rẽ nhánh tìm kiếm theo phân quyền
       if (role === 'WORKER') {
-        query += ` INNER JOIN task_workers tw_main ON t.task_id = tw_main.task_id WHERE tw_main.worker_id = $1`;
+        // Công nhân chỉ thấy việc mình được giao VÀ việc đó phải thuộc Ao mà Kỹ sư quản lý của họ đang phụ trách hiện tại
+        query += ` 
+          INNER JOIN task_workers tw_main ON t.task_id = tw_main.task_id 
+          WHERE tw_main.worker_id = $1
+            AND t.pond_id IN (
+              SELECT p.pond_id FROM ponds p
+              INNER JOIN technician_workers tw_rel ON p.assigned_staff = tw_rel.technician_id
+              WHERE tw_rel.worker_id = $1
+            )
+        `;
         queryParams.push(userId);
       } else if (role === 'OWNER' || role === 'ADMIN') {
         query += ` WHERE p.farm_id = $1`;
         queryParams.push(farmId);
       } else {
-        query += ` WHERE t.assigned_by = $1`;
+        // Kỹ sư sẽ thấy toàn bộ công việc thuộc Ao mà họ đang được phân công (Bất kể Kỹ sư cũ hay mới tạo)
+        query += ` WHERE t.pond_id IN (SELECT pond_id FROM ponds WHERE assigned_staff = $1)`;
         queryParams.push(userId);
       }
 
@@ -157,9 +167,9 @@ const taskController = {
   createTask: async (req, res) => {
     const client = await pool.connect();
     try {
-      await client.query('BEGIN'); 
+      await client.query('BEGIN');
 
-      const assigned_by = req.user.user_id; 
+      const assigned_by = req.user.user_id;
       // 🌟 Nhận thêm mảng 'assignments' từ ma trận giao diện
       const { season_id, pond_id, task_title, description, start_date, due_date, assigned_workers, materials, assignments } = req.body;
       const type_id = req.body.type_id || req.body.task_type || req.body.type;
@@ -170,12 +180,12 @@ const taskController = {
 
       // 1. KIỂM TRA THỜI GIAN VÀ THỜI LƯỢNG
       if (start.getTime() < now.getTime() + (30 * 60000)) {
-          throw new Error("Thời gian bắt đầu phải cách thời điểm hiện tại ít nhất 30 phút để nhân sự chuẩn bị.");
+        throw new Error("Thời gian bắt đầu phải cách thời điểm hiện tại ít nhất 30 phút để nhân sự chuẩn bị.");
       }
       if (due.getTime() <= start.getTime()) {
-          throw new Error("Thời gian kết thúc phải sau thời gian bắt đầu.");
+        throw new Error("Thời gian kết thúc phải sau thời gian bắt đầu.");
       }
-      
+
       const durationMinutes = (due.getTime() - start.getTime()) / 60000;
       const maxHours = getTaskDurationHours(type_id);
 
@@ -188,20 +198,20 @@ const taskController = {
       let taskGroups = []; // Mảng chứa các cụm { pond_id, worker_ids: [] }
 
       if (assignments && assignments.length > 0) {
-          // Nếu nhận được ma trận: Gom nhóm các nhân viên lại theo từng ao
-          const groups = {};
-          for (const item of assignments) {
-              if (!groups[item.pond_id]) groups[item.pond_id] = [];
-              groups[item.pond_id].push(item.worker_id);
-          }
-          for (const pId in groups) {
-              taskGroups.push({ pond_id: pId, worker_ids: groups[pId] });
-          }
+        // Nếu nhận được ma trận: Gom nhóm các nhân viên lại theo từng ao
+        const groups = {};
+        for (const item of assignments) {
+          if (!groups[item.pond_id]) groups[item.pond_id] = [];
+          groups[item.pond_id].push(item.worker_id);
+        }
+        for (const pId in groups) {
+          taskGroups.push({ pond_id: pId, worker_ids: groups[pId] });
+        }
       } else if (pond_id && assigned_workers && assigned_workers.length > 0) {
-          // Dự phòng nếu giao diện chỉ gửi 1 ao cơ bản
-          taskGroups.push({ pond_id: pond_id, worker_ids: assigned_workers });
+        // Dự phòng nếu giao diện chỉ gửi 1 ao cơ bản
+        taskGroups.push({ pond_id: pond_id, worker_ids: assigned_workers });
       } else {
-          throw new Error("Vui lòng chọn ít nhất 1 ao và 1 nhân sự để giao việc.");
+        throw new Error("Vui lòng chọn ít nhất 1 ao và 1 nhân sự để giao việc.");
       }
 
       // ==========================================================
@@ -210,30 +220,30 @@ const taskController = {
       const createdTaskCodes = [];
 
       for (const group of taskGroups) {
-          const currentPondId = group.pond_id;
-          const currentWorkers = group.worker_ids;
+        const currentPondId = group.pond_id;
+        const currentWorkers = group.worker_ids;
 
-          // 🌟 THÊM MỚI: Tự động tìm Mùa vụ (Season) mới nhất của Ao này
-          const seasonCheck = await client.query(
-            `SELECT season_id FROM seasons WHERE pond_id = $1 ORDER BY season_id DESC LIMIT 1`, 
-            [currentPondId]
-          );
-          const currentSeasonId = seasonCheck.rows.length > 0 ? seasonCheck.rows[0].season_id : null;
+        // 🌟 THÊM MỚI: Tự động tìm Mùa vụ (Season) mới nhất của Ao này
+        const seasonCheck = await client.query(
+          `SELECT season_id FROM seasons WHERE pond_id = $1 ORDER BY season_id DESC LIMIT 1`,
+          [currentPondId]
+        );
+        const currentSeasonId = seasonCheck.rows.length > 0 ? seasonCheck.rows[0].season_id : null;
 
-          // Kiểm tra kẹt lịch ao
-          const overlapCheck = await client.query(`
+        // Kiểm tra kẹt lịch ao
+        const overlapCheck = await client.query(`
               SELECT task_id, task_title FROM tasks 
               WHERE pond_id = $1 AND status NOT IN ('COMPLETED', 'CANCELLED')
                 AND start_date < $2 AND due_date > $3 LIMIT 1
           `, [currentPondId, due, start]);
 
-          if (overlapCheck.rows.length > 0) {
-              const pInfo = await client.query(`SELECT pond_code FROM ponds WHERE pond_id = $1`, [currentPondId]);
-              throw new Error(`Ao [${pInfo.rows[0]?.pond_code || currentPondId}] đang vướng công việc: "${overlapCheck.rows[0].task_title}".`);
-          }
-          
-          // Kiểm tra kẹt lịch nhân sự
-          const workerOverlap = await client.query(`
+        if (overlapCheck.rows.length > 0) {
+          const pInfo = await client.query(`SELECT pond_code FROM ponds WHERE pond_id = $1`, [currentPondId]);
+          throw new Error(`Ao [${pInfo.rows[0]?.pond_code || currentPondId}] đang vướng công việc: "${overlapCheck.rows[0].task_title}".`);
+        }
+
+        // Kiểm tra kẹt lịch nhân sự
+        const workerOverlap = await client.query(`
               SELECT u.full_name, t.task_title
               FROM task_workers tw
               INNER JOIN tasks t ON tw.task_id = t.task_id
@@ -245,57 +255,57 @@ const taskController = {
               LIMIT 1
           `, [currentWorkers, due, start]);
 
-          if (workerOverlap.rows.length > 0) {
-              throw new Error(`Nhân sự "${workerOverlap.rows[0].full_name}" đang bận làm "${workerOverlap.rows[0].task_title}".`);
-          }
+        if (workerOverlap.rows.length > 0) {
+          throw new Error(`Nhân sự "${workerOverlap.rows[0].full_name}" đang bận làm "${workerOverlap.rows[0].task_title}".`);
+        }
 
-          // Generate Mã Task
-          const year = new Date().getFullYear();
-          const countCheck = await client.query(`SELECT COALESCE(MAX(task_id), 0) AS max_id FROM tasks`);
-          const nextSequence = parseInt(countCheck.rows[0].max_id) + 1;
-          const task_code = `TSK-${year}-${String(nextSequence).padStart(5, '0')}`;
+        // Generate Mã Task
+        const year = new Date().getFullYear();
+        const countCheck = await client.query(`SELECT COALESCE(MAX(task_id), 0) AS max_id FROM tasks`);
+        const nextSequence = parseInt(countCheck.rows[0].max_id) + 1;
+        const task_code = `TSK-${year}-${String(nextSequence).padStart(5, '0')}`;
 
-          // 🌟 SỬA ĐỔI: Sử dụng currentSeasonId thay vì season_id từ req.body
-          const taskInsertQuery = `
+        // 🌟 SỬA ĐỔI: Sử dụng currentSeasonId thay vì season_id từ req.body
+        const taskInsertQuery = `
           INSERT INTO tasks (task_code, season_id, pond_id, task_title, description, assigned_by, start_date, due_date, type_id, status)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING')
           RETURNING task_id
           `;
-          const taskResult = await client.query(taskInsertQuery, [task_code, currentSeasonId, currentPondId, task_title, description, assigned_by, start, due, type_id]);
-          const taskId = taskResult.rows[0].task_id;
+        const taskResult = await client.query(taskInsertQuery, [task_code, currentSeasonId, currentPondId, task_title, description, assigned_by, start, due, type_id]);
+        const taskId = taskResult.rows[0].task_id;
 
-          // Thêm danh sách công nhân vào task
-          for (const workerId of currentWorkers) {
-              await client.query(`INSERT INTO task_workers (task_id, worker_id, status) VALUES ($1, $2, 'ASSIGNED')`, [taskId, workerId]);
+        // Thêm danh sách công nhân vào task
+        for (const workerId of currentWorkers) {
+          await client.query(`INSERT INTO task_workers (task_id, worker_id, status) VALUES ($1, $2, 'ASSIGNED')`, [taskId, workerId]);
+        }
+
+        // Thêm vật tư sử dụng
+        if (materials && Array.isArray(materials) && materials.length > 0) {
+          for (const item of materials) {
+            if (item.product_id && Number(item.quantity) > 0) {
+              const prodRes = await client.query(`SELECT unit_price FROM products WHERE product_id = $1`, [item.product_id]);
+              const currentPrice = prodRes.rows[0]?.unit_price || 0;
+
+              await client.query(
+                `INSERT INTO task_product_usage (task_id, product_id, quantity, unit_price) VALUES ($1, $2, $3, $4)`,
+                [taskId, item.product_id, Number(item.quantity), currentPrice]
+              );
+            }
           }
+        }
 
-          // Thêm vật tư sử dụng
-          if (materials && Array.isArray(materials) && materials.length > 0) {
-              for (const item of materials) {
-                  if (item.product_id && Number(item.quantity) > 0) {
-                      const prodRes = await client.query(`SELECT unit_price FROM products WHERE product_id = $1`, [item.product_id]);
-                      const currentPrice = prodRes.rows[0]?.unit_price || 0;
-
-                      await client.query(
-                        `INSERT INTO task_product_usage (task_id, product_id, quantity, unit_price) VALUES ($1, $2, $3, $4)`,
-                        [taskId, item.product_id, Number(item.quantity), currentPrice]
-                      );
-                  }
-              }
-          }
-          
-          createdTaskCodes.push(task_code);
+        createdTaskCodes.push(task_code);
       } // Kết thúc vòng lặp
 
-      await client.query('COMMIT'); 
+      await client.query('COMMIT');
       return res.status(201).json({ message: "Phân công công việc thành công!", task_codes: createdTaskCodes });
 
     } catch (error) {
-      await client.query('ROLLBACK'); 
+      await client.query('ROLLBACK');
       console.error("LỖI TẠO TASK:", error);
       return res.status(400).json({ message: error.message || "Lỗi hệ thống khi xử lý dữ liệu." });
     } finally {
-      client.release(); 
+      client.release();
     }
   },
 
@@ -438,16 +448,16 @@ const taskController = {
       if (statusCheck.rows.length === 0) throw new Error("Không tìm thấy công việc tương ứng.");
       if (statusCheck.rows[0].status !== 'PENDING') throw new Error("Chỉ có thể chỉnh sửa khi công việc đang ở trạng thái Chờ xử lý (PENDING).");
 
-      const type_id = statusCheck.rows[0].type_id; 
+      const type_id = statusCheck.rows[0].type_id;
       let currentSeasonId = statusCheck.rows[0].season_id;
 
       // 🌟 2. AUTO-FIX: Nếu công việc cũ bị mất season_id, tự động tìm lại mùa vụ mới nhất của ao đó
       if (!currentSeasonId) {
-          const seasonCheck = await client.query(
-              `SELECT season_id FROM seasons WHERE pond_id = $1 ORDER BY season_id DESC LIMIT 1`, 
-              [statusCheck.rows[0].pond_id]
-          );
-          currentSeasonId = seasonCheck.rows.length > 0 ? seasonCheck.rows[0].season_id : null;
+        const seasonCheck = await client.query(
+          `SELECT season_id FROM seasons WHERE pond_id = $1 ORDER BY season_id DESC LIMIT 1`,
+          [statusCheck.rows[0].pond_id]
+        );
+        currentSeasonId = seasonCheck.rows.length > 0 ? seasonCheck.rows[0].season_id : null;
       }
 
       const start = new Date(start_date);
@@ -455,9 +465,9 @@ const taskController = {
 
       // 🌟 3. THỜI GIAN LINH HOẠT: Đã gỡ bỏ chặn quá khứ để Kỹ sư dễ sửa sai
       if (due.getTime() <= start.getTime()) {
-          throw new Error("Thời gian kết thúc phải sau thời gian bắt đầu.");
+        throw new Error("Thời gian kết thúc phải sau thời gian bắt đầu.");
       }
-      
+
       const durationMinutes = (due.getTime() - start.getTime()) / 60000;
       const maxHours = getTaskDurationHours(type_id); // Hàm lấy số giờ tối đa chúng ta đã định nghĩa ở trên
 
@@ -516,13 +526,13 @@ const taskController = {
       await client.query('COMMIT');
       return res.status(200).json({ success: true, message: "Cập nhật công việc thành công!" });
     } catch (error) {
-      await client.query('ROLLBACK'); 
+      await client.query('ROLLBACK');
       console.error("LỖI CHI TIẾT TẠI BACKEND:", error);
       return res.status(400).json({ message: error.message || "Lỗi hệ thống khi xử lý dữ liệu." });
     } finally {
-      client.release(); 
+      client.release();
     }
-  }, 
+  },
 
   // XÓA CÔNG VIỆC
   deleteTask: async (req, res) => {

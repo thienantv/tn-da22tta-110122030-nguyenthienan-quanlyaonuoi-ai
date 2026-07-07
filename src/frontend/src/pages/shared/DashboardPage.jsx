@@ -140,7 +140,7 @@ const DashboardPage = ({ roleLabel = 'Owner' }) => {
     if (user?.user_id) fetchRealData();
   }, [role, isOwner, isTechnician, isWorker, user?.user_id, user?.farm_id]);
 
-  // ================= METRICS =================
+    // ================= METRICS =================
   const activeSeasonsCount = seasons.filter(s => ['DANG_NUOI', 'RUNNING', 'IN_PROGRESS'].includes(normalizeUpper(s.status))).length;
   const staffCount = users.filter(u => ['TECHNICIAN', 'WORKER'].includes(normalizeUpper(u.role || u.role_name))).length;
   
@@ -212,7 +212,7 @@ const DashboardPage = ({ roleLabel = 'Owner' }) => {
   const recentExpenses = [...expenses].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 5);
   const recentTasks = [...tasks].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 5);
 
-  // 🌟 LOADING CHÍNH
+  // LOADING CHÍNH
   if (loading && ponds.length === 0 && tasks.length === 0) {
     return <div className="flex items-center justify-center h-screen"><div className="w-12 h-12 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin"></div></div>;
   }

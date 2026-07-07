@@ -55,7 +55,7 @@ const diseaseController = {
       console.timeEnd("🌐 [Network] Thời gian gọi API phân loại CNN qua Python");
 
       // ============================================================
-      // 🌟 SỬA LỖI TẠI ĐÂY: Xử lý an toàn dữ liệu từ Python
+      // Xử lý an toàn dữ liệu từ Python
       // ============================================================
       const resultData = aiResponse.data.data || aiResponse.data || {};
 

@@ -40,7 +40,7 @@ const CustomTooltip = ({ active, payload }) => {
 // ============================================================================
 const DISEASE_NAME_MAP = {
   'YH': 'Bệnh đầu vàng (YHD)',
-  'WSSV': 'Bệnh đốm trắng (WSD)',
+  'WSSV': 'Bệnh đốm trắng (WSSV)',
   'BG': 'Bệnh đen mang',
   'WSSV_BG': 'Bệnh đốm trắng + đen mang',
   'HEALTHY': 'Tôm khỏe mạnh',
@@ -394,14 +394,14 @@ const AiDiagnosticPage = ({ roleLabel = 'Owner' }) => {
           {!result && !loading && (
             <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50 py-12 px-6 text-center">
               <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-4xl mb-4 shadow-sm border border-slate-200 grayscale opacity-50">🤖</div>
-              <p className="text-slate-500 font-medium max-w-sm">Tải ảnh lên và nhấn Khởi động để nhận phác đồ điều trị từ Bác sĩ AI Gemini</p>
+              <p className="text-slate-500 font-medium max-w-sm">Tải ảnh lên và nhấn Khởi động để nhận phác đồ điều trị từ AI Gemini</p>
             </div>
           )}
 
           {loading && (
             <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 rounded-2xl border border-slate-100">
                <div className="w-12 h-12 border-4 border-slate-200 border-t-sky-500 rounded-full animate-spin mb-5"></div>
-               <p className="text-sky-600 font-bold text-lg animate-pulse">Gemini đang hội chẩn hình ảnh...</p>
+               <p className="text-sky-600 font-bold text-lg animate-pulse">Đang chẩn đoán...</p>
             </div>
           )}
 
