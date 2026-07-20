@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { pondService } from '../../services/api';
+import { pondService, seasonService } from '../../services/api'; 
 import { showToast } from '../../utils/toast';
 import { useAuth } from '../../context/AuthContext';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
@@ -32,7 +32,6 @@ const formatDateTime = (value) => {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  // 🌟 HIỂN THỊ NGÀY GIỜ ĐẸP CHO GIAO DIỆN
   return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
 };
 
@@ -60,6 +59,7 @@ const Sparkline = ({ color }) => (
   </svg>
 );
 
+
 const PondsPage = ({ roleLabel = 'Owner' }) => {
   const { user } = useAuth();
 
@@ -69,6 +69,8 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
 
   const [ponds, setPonds] = useState([]);
   const [technicians, setTechnicians] = useState([]);
+  const [masterSeasons, setMasterSeasons] = useState([]); 
+  
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -83,10 +85,22 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
+  const [showStartSeasonModal, setShowStartSeasonModal] = useState(false); 
 
   const [selectedPond, setSelectedPond] = useState(null);
   const [busyAssignmentKey, setBusyAssignmentKey] = useState('');
+  
   const [form, setForm] = useState({ pondName: '', area_m2: '', depth_m: '', assigned_staff: '', usage_status: 'HOAT_DONG' });
+  
+  const [seasonForm, setSeasonForm] = useState({ 
+    masterSeasonId: '', 
+    startDate: '', 
+    expectedHarvestDate: '', 
+    shrimpType: 'Tôm sú', 
+    density: '', 
+    seedQuantity: '', 
+    note: '' 
+  });
 
   useEffect(() => {
     fetchData();
@@ -95,8 +109,14 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const pondRes = await pondService.getAllPonds();
+      const [pondRes, seasonRes, masterRes] = await Promise.all([
+        pondService.getAllPonds(),
+        seasonService.getAllSeasons(), 
+        seasonService.getMasterSeasons() 
+      ]);
+      
       setPonds(pondRes?.data?.data || []);
+      setMasterSeasons(masterRes?.data?.data || []); 
 
       if (isOwner) {
         const matrixRes = await pondService.getAssignmentMatrix().catch(() => null);
@@ -170,24 +190,16 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
     }));
   }, [ponds, technicianOptions, isOwner]);
 
-  // ==========================================================================
-  // HANDLERS
-  // ==========================================================================
   const handleAssignTech = async (pond, techId, checked) => {
     try {
       setBusyAssignmentKey(`${pond.pond_id}:${techId}`);
       setPonds(prev => prev.map(p => p.pond_id === pond.pond_id ? { ...p, assigned_staff: checked ? techId : null } : p));
       await pondService.updateAssignment(pond.pond_id, checked ? techId : null);
-    } catch (err) {
-      showToast({ title: 'Lỗi phân công', type: 'error' });
-      fetchData();
-    } finally {
-      setBusyAssignmentKey('');
-    }
+    } catch (err) { showToast({ title: 'Lỗi phân công', type: 'error' }); fetchData(); } 
+    finally { setBusyAssignmentKey(''); }
   };
 
   const handleToggleUsage = async (pond) => {
-    // 🌟 THÊM LOGIC CHẶN TẤT CẢ TRẠNG THÁI BẬN CỦA AO
     if (normalizeUpper(pond.usage_status) === 'HOAT_DONG') {
       const status = normalizeUpper(pond.status);
       if (['DANG_NUOI', 'CHUAN_BI_NUOI', 'DANG_XU_LY', 'DANG_CAI_TAO'].includes(status)) {
@@ -195,16 +207,12 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
         return;
       }
     }
-
     const next = normalizeUpper(pond.usage_status) === 'HOAT_DONG' ? 'NGUNG_SU_DUNG' : 'HOAT_DONG';
     if (!window.confirm(`Chuyển trạng thái sang ${next === 'HOAT_DONG' ? 'Hoạt động' : 'Ngưng dùng'}?`)) return;
     try {
       setPonds(prev => prev.map(p => p.pond_id === pond.pond_id ? { ...p, usage_status: next } : p));
       await pondService.updateUsageStatus(pond.pond_id, next);
-    } catch (err) { 
-      showToast({ title: 'Lỗi cập nhật trạng thái', type: 'error' }); 
-      fetchData(); 
-    }
+    } catch (err) { showToast({ title: 'Lỗi cập nhật trạng thái', type: 'error' }); fetchData(); }
   };
 
   const handleDelete = async (id) => {
@@ -213,10 +221,7 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
       await pondService.deletePond(id);
       showToast({ title: 'Xóa thành công', type: 'success' });
       fetchData();
-    } catch (err) {
-      showToast({ title: err?.response?.data?.message || 'Không thể xóa ao (Ao đang có dữ liệu liên quan)', type: 'error' });
-      fetchData();
-    }
+    } catch (err) { showToast({ title: err?.response?.data?.message || 'Không thể xóa ao', type: 'error' }); fetchData(); }
   };
 
   const handleCreateSubmit = async (e) => {
@@ -252,17 +257,6 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
     finally { setSaving(false); }
   };
 
-  const canConfirmRenovation = (pond) => {
-    const st = normalizeUpper(pond.status);
-    const isCorrectStatus = (st === 'DANG_CAI_TAO' || st === 'DANG_XU_LY');
-    const isHoatDong = normalizeUpper(pond.usage_status) === 'HOAT_DONG';
-    
-    // Chủ trại được quyền duyệt tất cả. Kỹ sư chỉ được duyệt ao do mình phụ trách
-    const hasPermission = isOwner || (isTechnician && Number(pond.assigned_staff) === Number(user?.user_id));
-
-    return isCorrectStatus && isHoatDong && hasPermission;
-  };
-
   const handleConfirmRenovation = async (pond) => {
     if (!window.confirm(`Xác nhận hoàn tất vệ sinh xử lý cho ao ${pond.pond_name}? Ao sẽ trở về trạng thái Tạm Ngưng.`)) return;
     try {
@@ -271,6 +265,58 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
       fetchData();
     } catch (err) { showToast({ title: 'Lỗi xác nhận xử lý', type: 'error' }); }
   };
+
+  const handleStartSeason = async (e) => {
+    e.preventDefault();
+    
+    const selectedMaster = masterSeasons.find(s => String(s.master_season_id) === String(seasonForm.masterSeasonId));
+    
+    if (selectedMaster) {
+      const startDateObj = new Date(seasonForm.startDate);
+      startDateObj.setHours(0, 0, 0, 0); 
+
+      if (selectedMaster.plan_start_date) {
+         const planStart = new Date(selectedMaster.plan_start_date);
+         planStart.setHours(0, 0, 0, 0);
+         if (startDateObj < planStart) {
+           showToast({ title: `Ngày thả giống không được sớm hơn ngày mở vụ (${formatVietnameseDate(selectedMaster.plan_start_date)})`, type: 'warning' });
+           return;
+         }
+      }
+
+      if (selectedMaster.plan_end_date) {
+         const planEnd = new Date(selectedMaster.plan_end_date);
+         planEnd.setHours(0, 0, 0, 0);
+         if (startDateObj > planEnd) {
+           showToast({ title: `Ngày thả giống không được trễ hơn ngày đóng vụ (${formatVietnameseDate(selectedMaster.plan_end_date)})`, type: 'warning' });
+           return;
+         }
+      }
+    }
+
+    setSaving(true);
+    try {
+      await seasonService.createSeason({
+        pondIds: [selectedPond.pond_id],
+        masterSeasonId: seasonForm.masterSeasonId, 
+        startDate: seasonForm.startDate,
+        expectedHarvestDate: seasonForm.expectedHarvestDate || null,
+        shrimpType: seasonForm.shrimpType,
+        density: Number(seasonForm.density),
+        quantitySeed: Number(seasonForm.seedQuantity),
+        note: seasonForm.note.trim() || null
+      });
+
+      showToast({ title: `Đã đưa ao ${selectedPond.pond_name} vào vụ nuôi mới!`, type: 'success' });
+      setShowStartSeasonModal(false);
+      fetchData();
+    } catch (err) {
+      showToast({ title: err?.response?.data?.message || 'Lỗi áp dụng mùa vụ', type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
 
   if (loading && ponds.length === 0) {
     return (
@@ -289,7 +335,7 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
         <div className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/2 w-64 h-64 bg-cyan-200/30 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="relative z-10">
-          <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">Quản lý Ao Nuôi</h1>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">Quản lý Vòng đời Ao</h1>
           <p className="text-slate-500 font-medium mt-1.5">{isOwner ? 'Theo dõi và vận hành toàn bộ hệ thống ao nuôi' : 'Danh sách các ao nuôi bạn được phân công quản lý'}</p>
         </div>
 
@@ -306,7 +352,6 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
         )}
       </div>
 
-      {/* 5 KPI CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-5 mb-6">
         <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
           <div className="flex justify-between items-start mb-2">
@@ -354,9 +399,7 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
         </div>
       </div>
 
-      {/* CHARTS WITH LOCAL LOADING OVERLAY */}
       <div className={`grid grid-cols-1 ${isOwner ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-5 mb-6`}>
-
         <div className="relative bg-white p-5 md:p-6 rounded-[24px] border border-slate-100 shadow-sm flex flex-col h-[320px] overflow-hidden">
           {loading && <div className="absolute inset-0 z-10 bg-white/40 backdrop-blur-[2px] transition-all"></div>}
           <h3 className="font-extrabold text-slate-800 text-lg mb-4 relative z-0">Trạng thái ao nuôi</h3>
@@ -434,7 +477,6 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
         )}
       </div>
 
-      {/* TABLE & FILTERS WITH LOCAL LOADING OVERLAY */}
       <div className="bg-white rounded-[24px] shadow-sm border border-slate-200 overflow-hidden relative">
 
         {loading && (
@@ -475,95 +517,137 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Thông tin Ao</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Kích thước</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái ao</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Sử dụng</th>
-                {isOwner && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Kỹ sư</th>}
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-[180px]">Thao tác</th>
+                {isOwner && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Kỹ sư / Sử dụng</th>}
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-[250px]">Vòng đời & Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {paginatedPonds.length === 0 ? (
-                <tr><td colSpan={isOwner ? 6 : 5} className="p-12 text-center text-slate-500 font-medium text-lg">Không tìm thấy dữ liệu ao nuôi.</td></tr>
+                <tr><td colSpan={isOwner ? 5 : 4} className="p-12 text-center text-slate-500 font-medium text-lg">Không tìm thấy dữ liệu ao nuôi.</td></tr>
               ) : (
-                paginatedPonds.map(pond => (
-                  <tr key={pond.pond_id} className="hover:bg-slate-50/50 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-teal-600 font-bold shadow-inner">
-                          {pond.pond_code?.slice(-2)}
-                        </div>
-                        <div>
-                          <strong className="block text-slate-800 text-base">{pond.pond_name}</strong>
-                          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{pond.pond_code}</span>
-                        </div>
-                      </div>
-                    </td>
+                paginatedPonds.map(pond => {
+                  const status = normalizeUpper(pond.status);
+                  const usage = normalizeUpper(pond.usage_status);
+                  const canEdit = isOwner || (isTechnician && Number(pond.assigned_staff) === Number(user?.user_id));
 
-                    <td className="px-6 py-4 text-right">
-                      <div className="text-sm font-bold text-slate-700">{formatRoundedNumber(pond.area_m2)} m²</div>
-                      <div className="text-xs font-medium text-slate-500 mt-0.5">Sâu: {formatRoundedNumber(pond.depth_m)} m</div>
-                    </td>
-
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex flex-col items-center">
-                        {getPondStatusBadge(pond.status)}
-                        {/* 🌟 ĐÃ HIỂN THỊ THỜI GIAN CẬP NHẬT TẠI ĐÂY */}
-                        {pond.updated_at && (
-                          <div className="text-[10px] text-slate-400 font-bold mt-1.5" title="Thời gian thay đổi trạng thái">
-                            🕒 {formatDateTime(pond.updated_at)}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 flex justify-center mt-2">{getUsageStatusBadge(pond.usage_status)}</td>
-
-                    {isOwner && (
+                  return (
+                    <tr key={pond.pond_id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
-                            {getTechnicianName(pond.assigned_staff).charAt(0)}
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-teal-600 font-bold shadow-inner">
+                            {pond.pond_code?.slice(-2)}
                           </div>
-                          <span className="font-bold text-sm text-slate-700 truncate max-w-[120px]">{getTechnicianName(pond.assigned_staff)}</span>
+                          <div>
+                            <strong className="block text-slate-800 text-base">{pond.pond_name}</strong>
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{pond.pond_code}</span>
+                          </div>
                         </div>
                       </td>
-                    )}
 
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <td className="px-6 py-4 text-right">
+                        <div className="text-sm font-bold text-slate-700">{formatRoundedNumber(pond.area_m2)} m²</div>
+                        <div className="text-xs font-medium text-slate-500 mt-0.5">Sâu: {formatRoundedNumber(pond.depth_m)} m</div>
+                      </td>
 
-                        <button onClick={() => { setSelectedPond(pond); setShowDetailModal(true); }} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-200 transition-all shadow-sm" title="Xem chi tiết">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                        </button>
+                      <td className="px-6 py-4 text-center">
+                        <div className="flex flex-col items-center">
+                          {getPondStatusBadge(status)}
+                          {pond.updated_at && (
+                            <div className="text-[10px] text-slate-400 font-bold mt-1.5" title="Thời gian thay đổi trạng thái">
+                              🕒 {formatDateTime(pond.updated_at)}
+                            </div>
+                          )}
+                        </div>
+                      </td>
 
-                        {isOwner && (
-                          <>
-                            <button onClick={() => { setForm({ pondName: pond.pond_name, area_m2: pond.area_m2, depth_m: pond.depth_m, assigned_staff: pond.assigned_staff || '', usage_status: pond.usage_status }); setSelectedPond(pond); setShowEditModal(true); }} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-all shadow-sm" title="Chỉnh sửa">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                            </button>
+                      {isOwner && (
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+                              {getTechnicianName(pond.assigned_staff).charAt(0)}
+                            </div>
+                            <span className="font-bold text-sm text-slate-700 truncate max-w-[120px]">{getTechnicianName(pond.assigned_staff)}</span>
+                          </div>
+                          {getUsageStatusBadge(usage)}
+                        </td>
+                      )}
 
-                            <button onClick={() => handleToggleUsage(pond)} className={`p-2 rounded-lg border transition-all shadow-sm ${normalizeUpper(pond.usage_status) === 'HOAT_DONG' ? 'bg-white border-slate-200 text-rose-500 hover:bg-rose-50 hover:border-rose-200' : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'}`} title={normalizeUpper(pond.usage_status) === 'HOAT_DONG' ? 'Tạm ngưng sử dụng' : 'Mở lại hoạt động'}>
-                              {normalizeUpper(pond.usage_status) === 'HOAT_DONG' ? (
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              ) : (
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col gap-2 justify-center items-center">
+                          {usage === 'HOAT_DONG' && canEdit && (
+                            <>
+                              {status === 'TAM_NGUNG' && (
+                                <button 
+                                  onClick={() => {
+                                    setSelectedPond(pond);
+                                    setSeasonForm({ masterSeasonId: '', startDate: '', expectedHarvestDate: '', shrimpType: 'Tôm sú', density: '', seedQuantity: '', note: '' });
+                                    setShowStartSeasonModal(true);
+                                  }}
+                                  className="w-full py-1.5 px-3 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-700 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1"
+                                >
+                                  <span>🌱</span> Bắt đầu Vụ mới
+                                </button>
                               )}
+
+                              {status === 'CHUAN_BI_NUOI' && (
+                                <button 
+                                  className="w-full py-1.5 px-3 rounded-lg bg-violet-50 text-violet-600 border border-violet-200 hover:bg-violet-100 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1"
+                                  onClick={() => window.alert('Vui lòng vào trang Quản lý Mùa Vụ để bấm Xác nhận Thả giống.')}
+                                >
+                                  <span>🦐</span> Xuống giống
+                                </button>
+                              )}
+
+                              {status === 'DANG_NUOI' && (
+                                <button 
+                                  className="w-full py-1.5 px-3 rounded-lg bg-sky-50 text-sky-600 border border-sky-200 hover:bg-sky-100 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1"
+                                  onClick={() => window.alert('Vui lòng vào trang Quản lý Mùa Vụ để xin phép Thu hoạch.')}
+                                >
+                                  <span>🎯</span> Xin Thu hoạch
+                                </button>
+                              )}
+
+                              {(status === 'DANG_XU_LY' || status === 'DANG_CAI_TAO') && (
+                                <button 
+                                  onClick={() => handleConfirmRenovation(pond)}
+                                  className="w-full py-1.5 px-3 rounded-lg bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1"
+                                >
+                                  <span>🧹</span> Đã dọn rửa xong
+                                </button>
+                              )}
+                            </>
+                          )}
+
+                          <div className="flex items-center justify-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => { setSelectedPond(pond); setShowDetailModal(true); }} className="p-1.5 rounded-md bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all shadow-sm" title="Xem chi tiết">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                             </button>
 
-                            <button onClick={() => handleDelete(pond.pond_id)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm" title="Xóa ao">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </>
-                        )}
+                            {isOwner && (
+                              <>
+                                <button onClick={() => { setForm({ pondName: pond.pond_name, area_m2: pond.area_m2, depth_m: pond.depth_m, assigned_staff: pond.assigned_staff || '', usage_status: pond.usage_status }); setSelectedPond(pond); setShowEditModal(true); }} className="p-1.5 rounded-md bg-white border border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-all shadow-sm" title="Sửa thông số">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                </button>
+                                
+                                <button onClick={() => handleToggleUsage(pond)} className={`p-1.5 rounded-md border transition-all shadow-sm ${usage === 'HOAT_DONG' ? 'bg-white border-slate-200 text-rose-500 hover:bg-rose-50 hover:border-rose-200' : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'}`} title={usage === 'HOAT_DONG' ? 'Khóa ngưng sử dụng' : 'Mở khóa hoạt động'}>
+                                  {usage === 'HOAT_DONG' ? (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                  )}
+                                </button>
 
-                        {canConfirmRenovation(pond) && (
-                          <button onClick={() => handleConfirmRenovation(pond)} className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 transition-all shadow-sm" title="Xác nhận xong cải tạo">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-                          </button>
-                        )}
-                      </div>
-                    </td>
-
-                  </tr>
-                ))
+                                <button onClick={() => handleDelete(pond.pond_id)} className="p-1.5 rounded-md bg-white border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm" title="Xóa bỏ">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -586,6 +670,119 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
       </div>
 
       {/* ================= MODALS ================= */}
+
+      {/* 🌟 NEW MODAL: BẮT ĐẦU VỤ MỚI */}
+      {showStartSeasonModal && selectedPond && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowStartSeasonModal(false)}>
+          <div className="bg-white max-w-2xl w-full p-0 rounded-[24px] shadow-2xl flex flex-col max-h-[95vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center p-5 sm:p-6 border-b border-emerald-100 bg-emerald-50/50 shrink-0">
+              <h2 className="text-xl md:text-2xl font-extrabold text-emerald-700 flex items-center gap-2">
+                <span>🌱 Bắt đầu Vụ nuôi mới</span>
+              </h2>
+              <button type="button" onClick={() => setShowStartSeasonModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-100 text-lg font-bold transition-colors shadow-sm">&times;</button>
+            </div>
+
+            <form onSubmit={handleStartSeason} className="flex flex-col flex-1 overflow-hidden">
+              <div className="p-5 sm:p-6 flex-1 overflow-y-auto">
+                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 mb-5 flex gap-4 items-center">
+                  <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-xl font-bold text-emerald-600 shadow-sm shrink-0">
+                    {selectedPond.pond_code?.slice(-2)}
+                  </div>
+                  <div>
+                    <strong className="block text-slate-800">{selectedPond.pond_name}</strong>
+                    <span className="text-sm text-slate-500">Diện tích: {formatRoundedNumber(selectedPond.area_m2)} m² | Thuộc: {getTechnicianName(selectedPond.assigned_staff)}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-bold text-slate-700">Mùa vụ áp dụng (Master Season) <span className="text-rose-500">*</span></label>
+                    <select 
+                      value={seasonForm.masterSeasonId} 
+                      onChange={e => setSeasonForm({...seasonForm, masterSeasonId: e.target.value})} 
+                      required 
+                      className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none font-bold text-slate-700 shadow-sm cursor-pointer"
+                    >
+                      <option value="">-- Chọn Mùa vụ chung của Trang trại --</option>
+                      {masterSeasons.map(s => <option key={s.master_season_id} value={s.master_season_id}>{s.season_name}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-bold text-slate-700">Ngày thả giống <span className="text-rose-500">*</span></label>
+                      {/* 🌟 LOGIC KHÓA LỊCH CỰC CHUẨN */}
+                      {(() => {
+                        const selectedMaster = masterSeasons.find(s => String(s.master_season_id) === String(seasonForm.masterSeasonId));
+                        
+                        // Hàm ép kiểu mọi định dạng ngày từ Database về đúng YYYY-MM-DD của HTML5
+                        const getFormatDate = (val) => {
+                          if (!val) return '';
+                          const d = new Date(val);
+                          if (Number.isNaN(d.getTime())) return '';
+                          const yyyy = d.getFullYear();
+                          const mm = String(d.getMonth() + 1).padStart(2, '0');
+                          const dd = String(d.getDate()).padStart(2, '0');
+                          return `${yyyy}-${mm}-${dd}`;
+                        };
+
+                        const minDate = getFormatDate(selectedMaster?.plan_start_date);
+                        const maxDate = getFormatDate(selectedMaster?.plan_end_date);
+
+                        return (
+                          <input 
+                            type="date" 
+                            required 
+                            min={minDate} 
+                            max={maxDate} 
+                            disabled={!seasonForm.masterSeasonId} 
+                            title={!seasonForm.masterSeasonId ? 'Vui lòng chọn Mùa vụ chung trước' : ''}
+                            value={seasonForm.startDate} 
+                            onChange={e => setSeasonForm({...seasonForm, startDate: e.target.value})} 
+                            className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none shadow-sm cursor-pointer disabled:bg-slate-100 disabled:cursor-not-allowed" 
+                          />
+                        );
+                      })()}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-bold text-slate-700">Loại giống tôm</label>
+                      <select value={seasonForm.shrimpType} onChange={e => setSeasonForm({...seasonForm, shrimpType: e.target.value})} className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none shadow-sm cursor-pointer">
+                        <option value="Tôm sú">Tôm sú</option>
+                        <option value="Tôm thẻ chân trắng">Tôm thẻ chân trắng</option>
+                        <option value="Tôm càng xanh">Tôm càng xanh</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-bold text-slate-700">Mật độ (con/m²) <span className="text-rose-500">*</span></label>
+                      <input type="number" required value={seasonForm.density} onChange={e => setSeasonForm({...seasonForm, density: e.target.value})} placeholder="VD: 150" className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none shadow-sm" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-bold text-slate-700">Số lượng giống <span className="text-rose-500">*</span></label>
+                      <input type="number" required value={seasonForm.seedQuantity} onChange={e => setSeasonForm({...seasonForm, seedQuantity: e.target.value})} placeholder="VD: 500000" className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none shadow-sm" />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-bold text-slate-700">Ghi chú (Tùy chọn)</label>
+                    <textarea rows="2" value={seasonForm.note} onChange={e => setSeasonForm({...seasonForm, note: e.target.value})} placeholder="Nhà cung cấp giống, tình trạng nước..." className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none resize-none shadow-sm"></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 sm:p-6 border-t border-slate-100 bg-slate-50/50 shrink-0 flex justify-end gap-3">
+                <button type="button" onClick={() => setShowStartSeasonModal(false)} className="px-6 py-3 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors shadow-sm">Hủy bỏ</button>
+                <button type="submit" disabled={saving || !seasonForm.masterSeasonId} className="px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-md shadow-emerald-500/20 active:scale-95 transition-all">
+                  {saving ? 'Đang xử lý...' : 'Xác nhận Bắt đầu'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal View Detail */}
       {showDetailModal && selectedPond && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={() => setShowDetailModal(false)}>

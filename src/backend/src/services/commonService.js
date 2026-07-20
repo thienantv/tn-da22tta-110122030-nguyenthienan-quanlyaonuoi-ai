@@ -5,11 +5,14 @@ const seasonService = {
   async getAllSeasons({ pondId = null, userId, role, farmId = null }) {
     try {
       let query = `
-        SELECT s.*, p.pond_name, p.pond_code, p.assigned_staff, u.full_name AS technician_name,
+        SELECT s.*, ms.season_name, p.pond_name, p.pond_code, p.assigned_staff, u.full_name AS technician_name,
           CASE WHEN s.actual_harvest IS NOT NULL THEN GREATEST((s.actual_harvest::date - s.start_date::date), 0)
                ELSE GREATEST((CURRENT_DATE - s.start_date::date), 0) END AS total_days,
           (SELECT COUNT(task_id) FROM tasks t WHERE t.season_id = s.season_id) AS task_count
-        FROM seasons s INNER JOIN ponds p ON p.pond_id = s.pond_id LEFT JOIN users u ON u.user_id = p.assigned_staff
+        FROM seasons s 
+        INNER JOIN master_seasons ms ON s.master_season_id = ms.master_season_id
+        INNER JOIN ponds p ON p.pond_id = s.pond_id 
+        LEFT JOIN users u ON u.user_id = p.assigned_staff
       `
       const params = []
       let paramCount = 0
@@ -70,7 +73,7 @@ const seasonService = {
     }
   },
 
-  async createSeason(targetPondIds, seasonName, startDate, expectedHarvestDate, shrimpType, quantitySeed, density, note) {
+  async createSeason(targetPondIds, masterSeasonId, startDate, expectedHarvestDate, shrimpType, quantitySeed, density, note) {
     try {
       const toDateOnly = (v) => {
         if (!v) return null;
@@ -80,8 +83,26 @@ const seasonService = {
 
       const startD = toDateOnly(startDate);
       const today = toDateOnly(new Date());
+
       if (startD && startD <= today) {
         throw new Error('Ngày thả giống phải từ ngày mai trở đi. Không thể lên kế hoạch cho quá khứ hoặc ngay hôm nay.');
+      }
+
+      // 🌟 LẤY THÔNG TIN VỤ CHUNG TỪ DATABASE ĐỂ KIỂM TRA
+      const masterRes = await db.query('SELECT plan_start_date, plan_end_date FROM master_seasons WHERE master_season_id = $1', [masterSeasonId]);
+      if (masterRes.rows.length === 0) throw new Error('Danh mục Vụ chung không tồn tại!');
+      
+      const masterSeason = masterRes.rows[0];
+
+      // 🌟 KIỂM TRA ĐIỀU KIỆN MIN / MAX SO VỚI VỤ CHUNG
+      if (masterSeason.plan_start_date) {
+         const planStart = toDateOnly(masterSeason.plan_start_date);
+         if (startD < planStart) throw new Error('Lỗi: Ngày thả giống ở ao không được sớm hơn ngày Mở vụ chung toàn trại.');
+      }
+
+      if (masterSeason.plan_end_date) {
+         const planEnd = toDateOnly(masterSeason.plan_end_date);
+         if (startD > planEnd) throw new Error('Lỗi: Ngày thả giống ở ao vượt quá thời hạn Đóng vụ chung toàn trại.');
       }
 
       if (startDate && expectedHarvestDate) {
@@ -97,9 +118,10 @@ const seasonService = {
       const createdSeasons = [];
       for (const pondId of targetPondIds) {
         const result = await db.query(
-          `INSERT INTO seasons (pond_id, season_name, start_date, expected_harvest, shrimp_type, quantity_seed, density, note, status)
+          // Insert master_season_id
+          `INSERT INTO seasons (pond_id, master_season_id, start_date, expected_harvest, shrimp_type, quantity_seed, density, note, status)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'CHUAN_BI_NUOI') RETURNING *`,
-          [pondId, seasonName, startDate, expectedHarvestDate, shrimpType, quantitySeed, density, note]
+          [pondId, masterSeasonId, startDate, expectedHarvestDate, shrimpType, quantitySeed, density, note]
         );
         createdSeasons.push(result.rows[0]);
 

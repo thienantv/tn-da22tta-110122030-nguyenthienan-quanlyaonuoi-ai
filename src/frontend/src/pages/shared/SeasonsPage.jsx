@@ -4,13 +4,12 @@ import { showToast } from '../../utils/toast';
 import { useAuth } from '../../context/AuthContext';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
-const emptyCreateForm = { pondIds: [], seasonName: '', startDate: '', expectedHarvestDate: '', density: '', seedQuantity: '', note: '' };
 const emptyHarvestForm = { actualHarvestDate: '', harvestWeightKg: '', note: '' };
+const emptyMasterForm = { seasonName: '', planStartDate: '', planEndDate: '', note: '' }; 
 
 const CHART_COLORS = ['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6'];
 const normalizeText = (s) => String(s || '').toLowerCase();
 const normalizeUpper = (s) => String(s || '').toUpperCase();
-
 
 const formatVietnameseDate = (value) => {
   if (!value) return '-';
@@ -82,7 +81,10 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   const isOwner = roleLabel === 'Owner';
   const isTechnician = roleLabel === 'Technician';
 
-  const [seasons, setSeasons] = useState([]);
+  const [activeTab, setActiveTab] = useState('running'); 
+  const [seasons, setSeasons] = useState([]); 
+  const [masterSeasons, setMasterSeasons] = useState([]); 
+  
   const [ponds, setPonds] = useState([]);
   const [technicians, setTechnicians] = useState([]);
 
@@ -104,7 +106,8 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
 
   const [selectedPondFilter, setSelectedPondFilter] = useState('ALL');
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  // Modals
+  const [showMasterModal, setShowMasterModal] = useState(false); 
   const [showHarvestModal, setShowHarvestModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showHarvestSummaryModal, setShowHarvestSummaryModal] = useState(false);
@@ -117,7 +120,11 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   const [showSopConfigModal, setShowSopConfigModal] = useState(false);
 
   const [selectedSeason, setSelectedSeason] = useState(null);
-  const [createForm, setCreateForm] = useState(emptyCreateForm);
+  
+  // 🌟 Thêm State để lưu ID vụ chung đang sửa
+  const [editingMasterId, setEditingMasterId] = useState(null); 
+  const [masterForm, setMasterForm] = useState(emptyMasterForm);
+  
   const [harvestForm, setHarvestForm] = useState(emptyHarvestForm);
 
   useEffect(() => { fetchData(); }, [roleLabel]);
@@ -131,12 +138,16 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [seasonsRes, pondsRes] = await Promise.all([
-        seasonService.getAllSeasons(),
-        pondService.getAllPonds()
+      // 🌟 ĐÃ GỠ BỎ MOCK DATA, GỌI API THỰC TẾ
+      const [seasonsRes, pondsRes, masterRes] = await Promise.all([
+        seasonService.getAllSeasons(), 
+        pondService.getAllPonds(),
+        seasonService.getMasterSeasons()
       ]);
+      
       setSeasons(seasonsRes?.data?.data || []);
       setPonds(pondsRes?.data?.data || []);
+      setMasterSeasons(masterRes?.data?.data || []);
 
       if (isOwner) {
         const matrixRes = await pondService.getAssignmentMatrix().catch(() => null);
@@ -155,12 +166,10 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
         taskService.getWorkersStatus(),
         productService.getProducts()
       ]);
-
-      const workerList = workerRes?.data?.data || [];
-      setWorkers(workerList);
+      setWorkers(workerRes?.data?.data || []);
       setProducts(prodRes?.data?.data || []);
     } catch (err) {
-      showToast({ title: 'Lỗi tải danh sách Công nhân/Vật tư', type: 'error' });
+      showToast({ title: 'Lỗi tải danh sách', type: 'error' });
     }
   };
 
@@ -169,7 +178,6 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
     return found ? (found.pond_name || found.pond_code) : '-';
   }, [ponds]);
 
-  // Khởi tạo danh sách nút bấm chọn Ao (Có thêm nút Tất cả)
   const pondOptions = useMemo(() => {
     const options = (ponds || []).map((p) => ({
       id: String(p.pond_id || p.id),
@@ -189,49 +197,36 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
     return technicians.map(t => ({ id: t.user_id, name: t.full_name || t.username }));
   }, [technicians]);
 
-  const filteredSeasons = useMemo(() => {
-    return seasons.filter((s) => {
-      const matchSearch = !searchTerm || normalizeText(s.season_name).includes(normalizeText(searchTerm)) || normalizeText(getPondName(s.pond_id)).includes(normalizeText(searchTerm));
-      const matchState = stateFilter === 'ALL' || normalizeSeasonStatus(s.status) === stateFilter;
-      const matchTech = !isOwner || technicianFilter === 'ALL' || normalizeText(s.technician_name || s.technician || '') === normalizeText(technicianFilter);
+  const filteredData = useMemo(() => {
+    if (activeTab === 'master') {
+      return masterSeasons.filter(s => !searchTerm || normalizeText(s.season_name).includes(normalizeText(searchTerm)));
+    } else {
+      return seasons.filter((s) => {
+        const matchSearch = !searchTerm || normalizeText(s.season_name).includes(normalizeText(searchTerm)) || normalizeText(getPondName(s.pond_id)).includes(normalizeText(searchTerm));
+        const matchState = stateFilter === 'ALL' || normalizeSeasonStatus(s.status) === stateFilter;
+        const matchTech = !isOwner || technicianFilter === 'ALL' || normalizeText(s.technician_name || s.technician || '') === normalizeText(technicianFilter);
+        const from = dateFrom ? toDateOnly(new Date(dateFrom)) : null;
+        const startD = s.start_date ? toDateOnly(new Date(s.start_date)) : null;
+        const matchDateExact = !from || (startD && startD.getTime() === from.getTime());
+        const matchPond = selectedPondFilter === 'ALL' || String(s.pond_id) === String(selectedPondFilter);
 
-      const from = dateFrom ? toDateOnly(new Date(dateFrom)) : null;
-      const startD = s.start_date ? toDateOnly(new Date(s.start_date)) : null;
-      const matchDateExact = !from || (startD && startD.getTime() === from.getTime());
-      
-      // ĐIỀU KIỆN LỌC THEO AO
-      const matchPond = selectedPondFilter === 'ALL' || String(s.pond_id) === String(selectedPondFilter);
+        return matchSearch && matchState && matchTech && matchDateExact && matchPond;
+      }).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    }
+  }, [activeTab, masterSeasons, seasons, searchTerm, stateFilter, technicianFilter, dateFrom, isOwner, getPondName, selectedPondFilter]);
 
-      return matchSearch && matchState && matchTech && matchDateExact && matchPond;
-    }).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  }, [seasons, searchTerm, stateFilter, technicianFilter, dateFrom, isOwner, getPondName, selectedPondFilter]);
-
-  const eligiblePonds = useMemo(() => ponds.filter(p => {
-    if (normalizeUpper(p.usage_status) === 'NGUNG_SU_DUNG') return false;
-    if (normalizeUpper(p.status) !== 'TAM_NGUNG') return false;
-    return true;
-  }), [ponds]);
-
-  const editPondOptions = useMemo(() => {
-    if (!selectedSeason?.season_id) return eligiblePonds;
-    const currentPondId = Number(selectedSeason.pond_id);
-    const currentPond = ponds.find(p => Number(p.pond_id) === currentPondId) || { pond_id: currentPondId, pond_name: getPondName(currentPondId), pond_code: selectedSeason.pond_code };
-    const merged = [currentPond, ...eligiblePonds];
-    return Array.from(new Map(merged.map(item => [item.pond_id, item])).values());
-  }, [eligiblePonds, ponds, selectedSeason, getPondName]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredSeasons.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
   const startIndex = (safePage - 1) * pageSize;
-  const endIndex = Math.min(startIndex + pageSize, filteredSeasons.length);
-  const paginatedSeasons = filteredSeasons.slice(startIndex, endIndex);
+  const endIndex = Math.min(startIndex + pageSize, filteredData.length);
+  const paginatedData = filteredData.slice(startIndex, endIndex);
 
   const stats = useMemo(() => ({
-    total: filteredSeasons.length,
-    preparing: filteredSeasons.filter(s => normalizeSeasonStatus(s.status) === 'CHUAN_BI_NUOI').length,
-    running: filteredSeasons.filter(s => normalizeSeasonStatus(s.status) === 'DANG_NUOI').length,
-    completed: filteredSeasons.filter(s => normalizeSeasonStatus(s.status) === 'DA_THU_HOACH').length,
-  }), [filteredSeasons]);
+    total: seasons.length,
+    preparing: seasons.filter(s => normalizeSeasonStatus(s.status) === 'CHUAN_BI_NUOI').length,
+    running: seasons.filter(s => normalizeSeasonStatus(s.status) === 'DANG_NUOI').length,
+    completed: seasons.filter(s => normalizeSeasonStatus(s.status) === 'DA_THU_HOACH').length,
+  }), [seasons]);
 
   const seasonChartData = [
     { label: 'Đang nuôi', value: stats.running, color: '#10b981' },
@@ -240,37 +235,22 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   ].filter(d => d.value > 0);
 
   const pondsProgress = useMemo(() => {
-    const runningSeasons = filteredSeasons.filter(s => normalizeSeasonStatus(s.status) === 'DANG_NUOI');
+    const runningSeasons = seasons.filter(s => normalizeSeasonStatus(s.status) === 'DANG_NUOI');
     return runningSeasons.map((s, idx) => ({
       label: getPondName(s.pond_id),
       value: seasonDays(s) === '-' ? 0 : Number(seasonDays(s)),
       color: CHART_COLORS[idx % CHART_COLORS.length]
     })).slice(0, 6);
-  }, [filteredSeasons, getPondName]);
+  }, [seasons, getPondName]);
 
   const getFilteredProducts = useCallback((typeId) => {
     if (!typeId) return products;
     const type = String(typeId);
-
     return products.filter(p => {
       const catCode = String(p.category_code || '').toUpperCase();
-
-      // 1. CẢI TẠO ĐẦU VỤ
-      if (type === '1') {
-        return ['CAT-HOA-CHAT', 'CAT-VI-SINH'].includes(catCode);
-      }
-
-      // 2. CHO ĂN
-      if (type === '2') {
-        return ['CAT-THUC-AN', 'CAT-THUOC', 'CAT-KHOANG-VITAMIN', 'CAT-VI-SINH'].includes(catCode);
-      }
-
-      // 3. XỬ LÝ NƯỚC & 4. THAY NƯỚC XI PHONG
-      if (type === '3' || type === '4') {
-        return ['CAT-HOA-CHAT', 'CAT-VI-SINH', 'CAT-KHOANG-VITAMIN'].includes(catCode);
-      }
-
-      // 7. CÔNG VIỆC KHÁC
+      if (type === '1') return ['CAT-HOA-CHAT', 'CAT-VI-SINH'].includes(catCode);
+      if (type === '2') return ['CAT-THUC-AN', 'CAT-THUOC', 'CAT-KHOANG-VITAMIN', 'CAT-VI-SINH'].includes(catCode);
+      if (type === '3' || type === '4') return ['CAT-HOA-CHAT', 'CAT-VI-SINH', 'CAT-KHOANG-VITAMIN'].includes(catCode);
       return true;
     });
   }, [products]);
@@ -283,18 +263,8 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
     });
   };
 
-  const addSopMaterial = (typeId) => {
-    setSopConfig(prev => ({
-      ...prev, [typeId]: { ...prev[typeId], materials: [...prev[typeId].materials, { product_id: '', quantity: '' }] }
-    }));
-  };
-
-  const removeSopMaterial = (typeId, index) => {
-    setSopConfig(prev => ({
-      ...prev, [typeId]: { ...prev[typeId], materials: prev[typeId].materials.filter((_, i) => i !== index) }
-    }));
-  };
-
+  const addSopMaterial = (typeId) => setSopConfig(prev => ({ ...prev, [typeId]: { ...prev[typeId], materials: [...prev[typeId].materials, { product_id: '', quantity: '' }] } }));
+  const removeSopMaterial = (typeId, index) => setSopConfig(prev => ({ ...prev, [typeId]: { ...prev[typeId], materials: prev[typeId].materials.filter((_, i) => i !== index) } }));
   const updateSopMaterial = (typeId, index, field, value) => {
     setSopConfig(prev => {
       const newMats = [...prev[typeId].materials];
@@ -306,98 +276,31 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   const handleGenerateSopSubmit = async () => {
     if (recentSeasonsForSOP.length === 0) return;
     setIsSopLoading(true);
-
     try {
       for (const season of recentSeasonsForSOP) {
-        await seasonService.generateSOP(season.season_id, {
-          templateConfig: sopConfig
-        });
+        await seasonService.generateSOP(season.season_id, { templateConfig: sopConfig });
       }
-      showToast({ title: 'Thiết lập và Bơm Lịch trình SOP thành công!', type: 'success' });
+      showToast({ title: 'Bơm Lịch trình thành công!', type: 'success' });
       setShowSopConfigModal(false);
       setSopConfig(initialSopConfig);
       fetchData();
-    } catch (err) {
-      showToast({ title: err?.response?.data?.message || 'Lỗi hệ thống khi sinh SOP', type: 'error' });
-    } finally {
-      setIsSopLoading(false);
-    }
-  };
-
-  const handleCreateSubmit = async (e) => {
-    e.preventDefault();
-    const isEditing = Boolean(selectedSeason?.season_id);
-
-    const selectedStart = new Date(createForm.startDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Đưa về 0h để so sánh chính xác ngày
-
-    if (selectedStart <= today) {
-      return showToast({ title: 'Ngày thả giống phải từ ngày mai trở đi (Không được chọn hôm nay hoặc quá khứ).', type: 'warning' });
-    }
-
-    if (createForm.pondIds.length === 0) {
-      return showToast({ title: 'Vui lòng chọn ít nhất 1 ao nuôi', type: 'warning' });
-    }
-
-    setSaving(true);
-    try {
-      const payload = {
-        pondIds: createForm.pondIds,
-        seasonName: createForm.seasonName.trim(),
-        startDate: createForm.startDate,
-        expectedHarvestDate: createForm.expectedHarvestDate || null,
-        shrimpType: isEditing ? (selectedSeason.shrimp_type || 'Tôm sú') : 'Tôm sú',
-        density: Number(createForm.density),
-        quantitySeed: Number(createForm.seedQuantity || 0),
-        note: createForm.note?.trim() || null,
-      };
-
-      if (isEditing) {
-        await seasonService.updateSeason(selectedSeason.season_id, payload);
-        showToast({ title: 'Cập nhật mùa vụ thành công', type: 'success' });
-        setShowCreateModal(false);
-        fetchData();
-      } else {
-        const res = await seasonService.createSeason(payload);
-        showToast({ title: `Đã tạo kế hoạch mùa vụ cho ${createForm.pondIds.length} ao`, type: 'success' });
-        setShowCreateModal(false);
-        fetchData();
-
-        if (res?.data?.data?.length > 0) {
-          setRecentSeasonsForSOP(res.data.data);
-          setShowSopConfirmModal(true);
-        }
-      }
-    } catch (err) {
-      showToast({ title: err?.response?.data?.message || 'Lỗi lưu mùa vụ', type: 'error' });
-    } finally {
-      setSaving(false);
-    }
+    } catch (err) { showToast({ title: 'Lỗi sinh SOP', type: 'error' }); } 
+    finally { setIsSopLoading(false); }
   };
 
   const handleHarvestSubmit = async (e) => {
     e.preventDefault();
+    if (!window.confirm('Xác nhận thu hoạch? Ao sẽ chuyển sang Đang xử lý.')) return;
+    setSaving(true);
     try {
-      if (!window.confirm('Xác nhận thu hoạch mùa vụ? Ao sẽ chuyển sang trạng thái Đang xử lý.')) return;
-      setSaving(true);
       await seasonService.harvestSeason(selectedSeason.season_id, {
         actualHarvestDate: harvestForm.actualHarvestDate, harvestWeightKg: Number(harvestForm.harvestWeightKg), harvestNote: harvestForm.note.trim() || null,
       });
       showToast({ title: 'Thu hoạch thành công', type: 'success' });
       setShowHarvestModal(false);
       fetchData();
-    } catch (err) { showToast({ title: err?.response?.data?.message || 'Lỗi thu hoạch', type: 'error' }); }
+    } catch (err) { showToast({ title: 'Lỗi thu hoạch', type: 'error' }); }
     finally { setSaving(false); }
-  };
-
-  const handleDelete = async (season) => {
-    if (!window.confirm(`Xác nhận xóa mùa vụ "${season.season_name}"? Mọi công việc chưa hoàn thành sẽ bị xóa.`)) return;
-    try {
-      await seasonService.deleteSeason(season.season_id);
-      showToast({ title: 'Xóa thành công, Ao đã quay về Tạm Ngưng', type: 'success' });
-      fetchData();
-    } catch (err) { showToast({ title: err?.response?.data?.message || 'Lỗi xóa mùa vụ', type: 'error' }); }
   };
 
   const handleRequestSubmit = async (e) => {
@@ -405,10 +308,10 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
     setSaving(true);
     try {
       await seasonService.requestHarvest(selectedSeason.season_id, requestForm);
-      showToast({ title: 'Đã gửi yêu cầu cho Chủ trại', type: 'success' });
+      showToast({ title: 'Đã gửi yêu cầu', type: 'success' });
       setShowRequestModal(false);
       fetchData();
-    } catch (err) { showToast({ title: err?.response?.data?.message || 'Lỗi gửi yêu cầu', type: 'error' }); }
+    } catch (err) { showToast({ title: 'Lỗi gửi yêu cầu', type: 'error' }); }
     finally { setSaving(false); }
   };
 
@@ -419,8 +322,66 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
       showToast({ title: isApproved ? 'Đã phê duyệt' : 'Đã từ chối', type: 'success' });
       setShowReviewModal(false);
       fetchData();
-    } catch (err) { showToast({ title: err?.response?.data?.message || 'Lỗi duyệt', type: 'error' }); }
+    } catch (err) { showToast({ title: 'Lỗi duyệt', type: 'error' }); }
     finally { setSaving(false); }
+  };
+
+  // ==========================================================================
+  // 🌟 LOGIC MỚI: QUẢN LÝ VỤ CHUNG (MASTER SEASON)
+  // ==========================================================================
+  const openMasterModal = (masterSeason = null) => {
+    if (masterSeason) {
+      setEditingMasterId(masterSeason.master_season_id);
+      setMasterForm({
+        seasonName: masterSeason.season_name,
+        planStartDate: masterSeason.plan_start_date ? masterSeason.plan_start_date.split('T')[0] : '',
+        planEndDate: masterSeason.plan_end_date ? masterSeason.plan_end_date.split('T')[0] : '',
+        note: masterSeason.note || ''
+      });
+    } else {
+      setEditingMasterId(null);
+      setMasterForm(emptyMasterForm);
+    }
+    setShowMasterModal(true);
+  };
+
+  const handleMasterSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {
+        seasonName: masterForm.seasonName.trim(),
+        planStartDate: masterForm.planStartDate || null,
+        planEndDate: masterForm.planEndDate || null,
+        note: masterForm.note
+      };
+
+      if (editingMasterId) {
+        await seasonService.updateMasterSeason(editingMasterId, payload);
+        showToast({ title: 'Đã cập nhật Danh mục Vụ', type: 'success' });
+      } else {
+        await seasonService.createMasterSeason(payload);
+        showToast({ title: 'Đã tạo Danh mục Vụ mới', type: 'success' });
+      }
+      
+      setShowMasterModal(false);
+      fetchData();
+    } catch (err) { 
+      showToast({ title: err?.response?.data?.message || 'Lỗi lưu vụ chung', type: 'error' }); 
+    } finally { 
+      setSaving(false); 
+    }
+  };
+
+  const handleDeleteMaster = async (id) => {
+    if (!window.confirm('Chắc chắn muốn xóa Vụ này?')) return;
+    try {
+      await seasonService.deleteMasterSeason(id);
+      showToast({ title: 'Đã xóa Danh mục vụ', type: 'success' });
+      fetchData();
+    } catch (err) { 
+      showToast({ title: err?.response?.data?.message || 'Không thể xóa (Đang có ao liên kết)', type: 'error' }); 
+    }
   };
 
   if (loading && seasons.length === 0) {
@@ -434,117 +395,129 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
   return (
     <div className="max-w-[1600px] mx-auto animate-in fade-in duration-300">
 
+      {/* HEADER */}
       <div className="relative bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 rounded-[24px] p-6 md:p-8 mb-6 border border-emerald-100/60 shadow-sm overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/3 w-96 h-96 bg-emerald-200/30 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/2 w-64 h-64 bg-cyan-200/30 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="relative z-10">
           <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">Quản lý Mùa Vụ</h1>
-          <p className="text-slate-500 font-medium mt-1.5">{isOwner ? 'Theo dõi tổng quan các vụ nuôi trong trang trại' : 'Lập kế hoạch, theo dõi và thu hoạch vụ nuôi'}</p>
+          <p className="text-slate-500 font-medium mt-1.5">{isOwner ? 'Định nghĩa Vụ chung và theo dõi tiến độ thả giống từng ao' : 'Lập kế hoạch, theo dõi và thu hoạch vụ nuôi'}</p>
         </div>
 
-        {isTechnician && (
+        {isOwner && activeTab === 'master' && (
           <div className="relative z-10 w-full md:w-auto">
-            <button onClick={() => { setCreateForm(emptyCreateForm); setSelectedSeason(null); setShowCreateModal(true); }} className="w-full md:w-auto px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2">
-              <span className="text-xl leading-none">+</span> Lên Kế hoạch Vụ mới
+            <button onClick={() => openMasterModal()} className="w-full md:w-auto px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2">
+              <span className="text-xl leading-none">+</span> Thêm Danh mục Vụ
             </button>
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-5 mb-6">
-        <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">Tổng mùa vụ</span><div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-400">📊</div></div>
-          <strong className="block text-3xl font-black text-slate-800">{stats.total}</strong>
-          <div className="mt-2"><Sparkline color="#94a3b8" /></div>
-        </div>
-        <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">Đang nuôi</span><div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">🦐</div></div>
-          <strong className="block text-3xl font-black text-slate-800">{stats.running}</strong>
-          <div className="mt-2"><Sparkline color="#10b981" /></div>
-        </div>
-        <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">Chuẩn bị nuôi</span><div className="w-8 h-8 rounded-full bg-violet-50 flex items-center justify-center text-violet-500">💧</div></div>
-          <strong className="block text-3xl font-black text-slate-800">{stats.preparing}</strong>
-          <div className="mt-2"><Sparkline color="#8b5cf6" /></div>
-        </div>
-        <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">Đã thu hoạch</span><div className="w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-500">🎉</div></div>
-          <strong className="block text-3xl font-black text-slate-800">{stats.completed}</strong>
-          <div className="mt-2"><Sparkline color="#0ea5e9" /></div>
-        </div>
-        <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">TB Ngày nuôi</span><div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-500">⏱️</div></div>
-          <strong className="block text-3xl font-black text-slate-800">{filteredSeasons.length > 0 ? formatRoundedNumber(filteredSeasons.reduce((s, i) => s + (seasonDays(i) === '-' ? 0 : Number(seasonDays(i))), 0) / filteredSeasons.length) : '-'}</strong>
-          <div className="mt-2"><Sparkline color="#f59e0b" /></div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 overflow-x-auto pb-4 mb-2 scrollbar-hide">
-        {pondOptions.map((pond) => {
-          const isActive = String(selectedPondFilter) === String(pond.id);
-          return (
-            <button
-              key={pond.id}
-              onClick={() => { 
-                setSelectedPondFilter(pond.id); 
-                setCurrentPage(1); // Reset về trang 1 khi đổi ao
-              }}
-              className={`whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm ${isActive ? 'bg-slate-800 text-white shadow-md scale-105' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}
-            >
-              {pond.label}
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-        <div className="relative bg-white p-5 md:p-6 rounded-[24px] border border-slate-100 shadow-sm flex flex-col h-[320px] overflow-hidden">
-          {loading && <div className="absolute inset-0 z-10 bg-white/40 backdrop-blur-[2px] transition-all"></div>}
-          <h3 className="font-extrabold text-slate-800 text-lg mb-4 relative z-0">Tiến độ ngày nuôi (Ao đang chạy)</h3>
-          <div className="flex-1 h-[180px] relative z-0">
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={pondsProgress} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b', fontWeight: 600 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b', fontWeight: 600 }} />
-                <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                <Bar dataKey="value" radius={[6, 6, 6, 6]} maxBarSize={40}>
-                  {pondsProgress.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="relative bg-white p-5 md:p-6 rounded-[24px] border border-slate-100 shadow-sm flex flex-col h-[320px] overflow-hidden">
-          {loading && <div className="absolute inset-0 z-10 bg-white/40 backdrop-blur-[2px] transition-all"></div>}
-          <h3 className="font-extrabold text-slate-800 text-lg mb-4 relative z-0">Trạng thái tổng quan mùa vụ</h3>
-          <div className="flex-1 flex items-center relative z-0">
-            <div className="w-1/2 h-[180px]">
-              <ResponsiveContainer width="100%" height={180}>
-                <PieChart>
-                  <Pie data={seasonChartData} innerRadius="65%" outerRadius="90%" paddingAngle={4} dataKey="value" stroke="none">
-                    {seasonChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                  </Pie>
-                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                </PieChart>
-              </ResponsiveContainer>
+      {/* KPI & CHARTS (Chỉ hiện khi ở Tab Tiến độ) */}
+      {activeTab === 'running' && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-5 mb-6 animate-in fade-in">
+            <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
+              <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">Tổng lịch thả</span><div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-400">📊</div></div>
+              <strong className="block text-3xl font-black text-slate-800">{stats.total}</strong>
+              <div className="mt-2"><Sparkline color="#94a3b8" /></div>
             </div>
-            <div className="w-1/2 pl-6 flex flex-col gap-3 justify-center">
-              {seasonChartData.map(item => (
-                <div key={item.label} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: item.color }}></div>
-                    <span className="text-sm font-bold text-slate-500">{item.label}</span>
-                  </div>
-                  <span className="text-base font-black text-slate-800">{item.value}</span>
+            <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
+              <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">Đang nuôi</span><div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">🦐</div></div>
+              <strong className="block text-3xl font-black text-slate-800">{stats.running}</strong>
+              <div className="mt-2"><Sparkline color="#10b981" /></div>
+            </div>
+            <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
+              <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">Chuẩn bị nuôi</span><div className="w-8 h-8 rounded-full bg-violet-50 flex items-center justify-center text-violet-500">💧</div></div>
+              <strong className="block text-3xl font-black text-slate-800">{stats.preparing}</strong>
+              <div className="mt-2"><Sparkline color="#8b5cf6" /></div>
+            </div>
+            <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
+              <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">Đã thu hoạch</span><div className="w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-500">🎉</div></div>
+              <strong className="block text-3xl font-black text-slate-800">{stats.completed}</strong>
+              <div className="mt-2"><Sparkline color="#0ea5e9" /></div>
+            </div>
+            <div className="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm relative overflow-hidden">
+              <div className="flex justify-between items-start mb-2"><span className="text-slate-500 font-bold text-sm">TB Ngày nuôi</span><div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-500">⏱️</div></div>
+              <strong className="block text-3xl font-black text-slate-800">{seasons.length > 0 ? formatRoundedNumber(seasons.reduce((s, i) => s + (seasonDays(i) === '-' ? 0 : Number(seasonDays(i))), 0) / seasons.length) : '-'}</strong>
+              <div className="mt-2"><Sparkline color="#f59e0b" /></div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6 animate-in fade-in">
+            <div className="relative bg-white p-5 md:p-6 rounded-[24px] border border-slate-100 shadow-sm flex flex-col h-[320px] overflow-hidden">
+              <h3 className="font-extrabold text-slate-800 text-lg mb-4 relative z-0">Tiến độ ngày nuôi (Ao đang chạy)</h3>
+              <div className="flex-1 h-[180px] relative z-0">
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={pondsProgress} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b', fontWeight: 600 }} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b', fontWeight: 600 }} />
+                    <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Bar dataKey="value" radius={[6, 6, 6, 6]} maxBarSize={40}>
+                      {pondsProgress.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="relative bg-white p-5 md:p-6 rounded-[24px] border border-slate-100 shadow-sm flex flex-col h-[320px] overflow-hidden">
+              <h3 className="font-extrabold text-slate-800 text-lg mb-4 relative z-0">Trạng thái tổng quan mùa vụ</h3>
+              <div className="flex-1 flex items-center relative z-0">
+                <div className="w-1/2 h-[180px]">
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie data={seasonChartData} innerRadius="65%" outerRadius="90%" paddingAngle={4} dataKey="value" stroke="none">
+                        {seasonChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-              ))}
+                <div className="w-1/2 pl-6 flex flex-col gap-3 justify-center">
+                  {seasonChartData.map(item => (
+                    <div key={item.label} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: item.color }}></div>
+                        <span className="text-sm font-bold text-slate-500">{item.label}</span>
+                      </div>
+                      <span className="text-base font-black text-slate-800">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </>
+      )}
+
+      {/* 🌟 TABS ĐIỀU HƯỚNG */}
+      <div className="flex items-center gap-3 overflow-x-auto pb-4 mb-2 scrollbar-hide">
+        <button onClick={() => { setActiveTab('running'); setCurrentPage(1); }} className={`whitespace-nowrap px-6 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm ${activeTab === 'running' ? 'bg-slate-800 text-white shadow-md scale-105' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>🌊 Tiến độ Ao (Chi tiết)</button>
+        {isOwner && (
+          <button onClick={() => { setActiveTab('master'); setCurrentPage(1); }} className={`whitespace-nowrap px-6 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm ${activeTab === 'master' ? 'bg-slate-800 text-white shadow-md scale-105' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>🗓️ Danh mục Vụ chung (Cố định)</button>
+        )}
       </div>
+
+      {activeTab === 'running' && (
+        <div className="flex items-center gap-3 overflow-x-auto pb-4 mb-2 scrollbar-hide animate-in slide-in-from-left-4">
+          {pondOptions.map((pond) => {
+            const isActive = String(selectedPondFilter) === String(pond.id);
+            return (
+              <button
+                key={pond.id}
+                onClick={() => { setSelectedPondFilter(pond.id); setCurrentPage(1); }}
+                className={`whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm ${isActive ? 'bg-slate-800 text-white shadow-md scale-105' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}
+              >
+                {pond.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
 
       <div className="bg-white rounded-[24px] shadow-sm border border-slate-200 overflow-hidden relative">
 
@@ -560,61 +533,92 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
         <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row gap-4 bg-slate-50/30">
           <div className="relative flex-1">
             <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            <input type="text" placeholder="Tìm theo tên mùa vụ hoặc ao..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none transition-all shadow-sm" />
+            <input type="text" placeholder={activeTab === 'running' ? "Tìm theo tên vụ hoặc ao..." : "Tìm tên danh mục vụ..."} value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none transition-all shadow-sm" />
           </div>
-          <div className="flex flex-wrap gap-3">
-            <select value={stateFilter} onChange={(e) => { setStateFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 outline-none focus:border-emerald-500 shadow-sm cursor-pointer w-full sm:w-auto">
-              {seasonStatusOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-
-            {isOwner && (
-              <select value={technicianFilter} onChange={(e) => { setTechnicianFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 outline-none focus:border-emerald-500 shadow-sm cursor-pointer w-full sm:w-auto">
-                <option value="ALL">Kỹ sư phụ trách (Tất cả)</option>
-                {technicianOptions.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+          
+          {activeTab === 'running' && (
+            <div className="flex flex-wrap gap-3">
+              <select value={stateFilter} onChange={(e) => { setStateFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 outline-none focus:border-emerald-500 shadow-sm cursor-pointer w-full sm:w-auto">
+                {seasonStatusOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-            )}
 
-            <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none focus:border-emerald-500 shadow-sm cursor-pointer w-full sm:w-auto" title="Lọc theo ngày thả" />
-          </div>
+              {isOwner && (
+                <select value={technicianFilter} onChange={(e) => { setTechnicianFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 outline-none focus:border-emerald-500 shadow-sm cursor-pointer w-full sm:w-auto">
+                  <option value="ALL">Kỹ sư phụ trách (Tất cả)</option>
+                  {technicianOptions.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                </select>
+              )}
+              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }} className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none focus:border-emerald-500 shadow-sm cursor-pointer w-full sm:w-auto" title="Lọc theo ngày thả" />
+            </div>
+          )}
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[1000px]">
             <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Thông tin Mùa Vụ</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Giống / Mật độ</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Lịch trình</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-[220px]">Thao tác</th>
-              </tr>
+              {activeTab === 'running' ? (
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Thông tin Xuống giống</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Giống / Mật độ</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Lịch trình</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-[220px]">Thao tác</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tên Vụ Hệ thống</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ngày mở vụ</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Ngày đóng (Dự kiến)</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Trạng thái</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-[120px]">Thao tác</th>
+                </tr>
+              )}
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {paginatedSeasons.length === 0 ? (
-                <tr><td colSpan={5} className="p-12 text-center text-slate-500 font-medium text-lg">Không tìm thấy dữ liệu mùa vụ.</td></tr>
+              {paginatedData.length === 0 ? (
+                <tr><td colSpan={5} className="p-12 text-center text-slate-500 font-medium text-lg">Không tìm thấy dữ liệu.</td></tr>
               ) : (
-                paginatedSeasons.map(season => {
+                paginatedData.map(item => {
+                  if (activeTab === 'master') {
+                    // RENDERING DÒNG CỦA DANH MỤC MASTER SEASON
+                    return (
+                      <tr key={item.master_season_id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <strong className="block text-slate-800 text-base">{item.season_name}</strong>
+                          <span className="text-xs text-slate-500 block mt-0.5">Mã: #{item.master_season_id}</span>
+                        </td>
+                        <td className="px-6 py-4 text-center font-medium text-slate-700">{formatVietnameseDate(item.plan_start_date)}</td>
+                        <td className="px-6 py-4 text-center font-medium text-slate-700">{formatVietnameseDate(item.plan_end_date)}</td>
+                        <td className="px-6 py-4 text-center">
+                          {item.status === 'OPEN' ? <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm">Đang mở</span> : <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold shadow-sm">Đã đóng</span>}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex justify-center gap-1.5 opacity-80 hover:opacity-100 transition-opacity">
+                            {/* 🌟 NÚT SỬA VÀ XÓA CỦA DANH MỤC VỤ */}
+                            <button onClick={() => openMasterModal(item)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-600 transition-all shadow-sm" title="Chỉnh sửa">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button onClick={() => handleDeleteMaster(item.master_season_id)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-all shadow-sm" title="Xóa">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  // RENDERING DÒNG CỦA TIẾN ĐỘ AO (POND SEASON)
+                  const season = item;
                   const statusNorm = normalizeSeasonStatus(season.status);
                   const canGenerateSop = isTechnician && ['CHUAN_BI_NUOI', 'DANG_NUOI'].includes(statusNorm);
-                  const canEdit = isTechnician && statusNorm === 'CHUAN_BI_NUOI';
-                  const canDelete = isTechnician && statusNorm === 'CHUAN_BI_NUOI';
                   const canViewSummary = statusNorm === 'DA_THU_HOACH';
-
-                  // LOGIC MỚI CHO THU HOẠCH
                   const isRunning = statusNorm === 'DANG_NUOI';
                   const reqStatus = season.harvest_request_status;
 
-                  // Kỹ sư: Thấy nút Xin phép nếu chưa xin hoặc bị từ chối
                   const canRequestHarvest = isTechnician && isRunning && (!reqStatus || reqStatus === 'REJECTED');
-                  // Kỹ sư: Thấy nút Thu hoạch (Xanh) khi được duyệt
                   const canExecuteHarvest = isTechnician && isRunning && reqStatus === 'APPROVED';
-                  // Kỹ sư: Thấy chữ Chờ duyệt khi đang Pending
                   const isPendingTech = isTechnician && isRunning && reqStatus === 'PENDING';
-
-                  // Chủ trại: Thấy nút Duyệt khi có yêu cầu PENDING
                   const canReviewHarvest = isOwner && isRunning && reqStatus === 'PENDING';
-
-                  // 🌟 KIỂM TRA ĐÃ CÓ TASK CHƯA (Backend trả về biến task_count)
                   const hasSop = Number(season.task_count) > 0;
 
                   return (
@@ -635,44 +639,32 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
 
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
-
-                          {/* 1. Nút xem chi tiết (Ai cũng thấy) */}
                           <button onClick={() => { setSelectedSeason(season); setShowDetailModal(true); }} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-sky-50 hover:text-sky-600 flex items-center justify-center shadow-sm" title="Xem chi tiết">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                           </button>
 
-                          {/* 2. Nút xem tổng kết thu hoạch (Khi vụ nuôi đã xong) */}
                           {canViewSummary && (
                             <button onClick={() => { setSelectedSeason(season); setShowHarvestSummaryModal(true); }} className="p-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-600 hover:bg-sky-100 transition-all shadow-sm" title="Tổng kết thu hoạch">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                             </button>
                           )}
 
-                          {/* ========================================================================= */}
-                          {/* 🌟 ĐOẠN THÊM MỚI CHÍNH XÁC: PHÂN LUỒNG QUY TRÌNH DUYỆT THU HOẠCH */}
-                          {/* ========================================================================= */}
-                          
-                          {/* A. Đối với KỸ SƯ: Nút xin phép thu hoạch */}
                           {canRequestHarvest && (
                             <button onClick={() => { setSelectedSeason(season); setRequestForm({ requestDate: '', note: '' }); setShowRequestModal(true); }} className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-600 hover:bg-amber-100 transition-all shadow-sm flex items-center gap-1" title="Xin phép thu hoạch">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                              {/* <span className="text-xs font-bold">Xin thu hoạch</span> */}
                             </button>
                           )}
 
-                          {/* B. Đối với KỸ SƯ: Trạng thái hiển thị khi đang chờ sếp duyệt */}
                           {isPendingTech && (
                             <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-500 text-[11px] font-black shadow-sm cursor-not-allowed" title="Đang chờ Chủ trại phê duyệt">⏳ </span>
                           )}
 
-                          {/* C. Đối với CHỦ TRẠI: Nút bấm xét duyệt nhấp nháy khẩn cấp */}
                           {canReviewHarvest && (
                             <button onClick={() => { setSelectedSeason(season); setShowReviewModal(true); }} className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 transition-all shadow-sm font-black text-xs animate-pulse flex items-center gap-1" title="Xem xét cấp phép thu hoạch">
                               🚨
                             </button>
                           )}
 
-                          {/* D. Đối với KỸ SƯ: Nút tiến hành thu hoạch thực tế (Chỉ mở ra khi đã APPROVED) */}
                           {canExecuteHarvest && (
                             <button onClick={() => { setSelectedSeason(season); setHarvestForm(emptyHarvestForm); setShowHarvestModal(true); }} className="p-2 rounded-lg bg-emerald-50 border border-emerald-500 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 transition-all shadow-md flex items-center gap-1" title="Đã được cấp phép! Bấm để tiến hành thu hoạch">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
@@ -680,45 +672,14 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                             </button>
                           )}
 
-                          {/* ========================================================================= */}
-                          {/* CÁC THAO TÁC CƠ BẢN KHÁC (CHỈ HIỂN THỊ KHI AO Ở GIAI ĐOẠN CHUẨN BỊ) */}
-                          {/* ========================================================================= */}
-                          {isTechnician && (
-                            <>
-                              {canGenerateSop && (
-                                <button
-                                  onClick={() => { if (!hasSop) { setRecentSeasonsForSOP([season]); setShowSopConfigModal(true); } }}
-                                  disabled={hasSop}
-                                  className={`p-2 rounded-lg border transition-all shadow-sm ${hasSop ? 'bg-slate-50 border-slate-200 text-emerald-500 cursor-not-allowed opacity-80' : 'bg-white border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`}
-                                  title={hasSop ? "Lịch trình SOP đã được thiết lập" : "Thiết lập Lịch trình SOP tự động"}>
-                                  {hasSop ? '✅' : '⚙️'}
-                                </button>
-                              )}
-
-                              {canEdit && (
-                                <button onClick={() => {
-                                  setSelectedSeason(season);
-                                  setCreateForm({
-                                    pondIds: [season.pond_id],
-                                    seasonName: season.season_name,
-                                    startDate: season.start_date?.split('T')[0] || '',
-                                    expectedHarvestDate: season.expected_harvest?.split('T')[0] || '',
-                                    density: season.density,
-                                    seedQuantity: season.seed_quantity || season.quantity_seed || '',
-                                    note: season.note || ''
-                                  });
-                                  setShowCreateModal(true);
-                                }} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-all shadow-sm" title="Chỉnh sửa Kế hoạch">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                                </button>
-                              )}
-
-                              {canDelete && (
-                                <button onClick={() => handleDelete(season)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm" title="Xóa hủy Kế hoạch">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                </button>
-                              )}
-                            </>
+                          {isTechnician && canGenerateSop && (
+                            <button
+                              onClick={() => { if (!hasSop) { setRecentSeasonsForSOP([season]); setShowSopConfigModal(true); } }}
+                              disabled={hasSop}
+                              className={`p-2 rounded-lg border transition-all shadow-sm ${hasSop ? 'bg-slate-50 border-slate-200 text-emerald-500 cursor-not-allowed opacity-80' : 'bg-white border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200'}`}
+                              title={hasSop ? "Lịch trình SOP đã được thiết lập" : "Thiết lập Lịch trình SOP tự động"}>
+                              {hasSop ? '✅' : '⚙️'}
+                            </button>
                           )}
                         </div>
                       </td>
@@ -737,7 +698,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
             <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }} className="border border-slate-200 rounded-lg px-3 py-1.5 outline-none bg-slate-50 focus:border-emerald-500">
               {[5, 10, 20, 50].map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <span>({filteredSeasons.length > 0 ? startIndex + 1 : 0} - {endIndex} / {filteredSeasons.length})</span>
+            <span>({filteredData.length > 0 ? startIndex + 1 : 0} - {endIndex} / {filteredData.length})</span>
           </div>
           <div className="flex gap-2">
             <button onClick={() => setCurrentPage(p => p - 1)} disabled={safePage <= 1} className="px-4 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition-colors font-bold shadow-sm">Trước</button>
@@ -746,6 +707,43 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
           </div>
         </div>
       </div>
+
+      {/* ================= MODALS ================= */}
+
+      {/* 🌟 NEW MODAL: TẠO VÀ SỬA MASTER SEASON */}
+      {showMasterModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowMasterModal(false)}>
+           <div className="bg-white max-w-lg w-full p-6 md:p-8 rounded-[24px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+              <h2 className="text-xl md:text-2xl font-extrabold text-slate-800 mb-6">
+                {editingMasterId ? 'Cập nhật Danh mục Vụ' : 'Thêm Danh mục Vụ'}
+              </h2>
+              <form onSubmit={handleMasterSubmit} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-bold text-slate-700">Tên Mùa vụ <span className="text-rose-500">*</span></label>
+                  <input required value={masterForm.seasonName} onChange={e => setMasterForm({...masterForm, seasonName: e.target.value})} placeholder="VD: Vụ Hè Thu 2026" className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 outline-none font-bold text-slate-800" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-bold text-slate-700">Mở vụ (Dự kiến)</label>
+                    <input type="date" value={masterForm.planStartDate} onChange={e => setMasterForm({...masterForm, planStartDate: e.target.value})} className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-bold text-slate-700">Đóng vụ (Dự kiến)</label>
+                    <input type="date" value={masterForm.planEndDate} onChange={e => setMasterForm({...masterForm, planEndDate: e.target.value})} className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 outline-none" />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-bold text-slate-700">Ghi chú</label>
+                  <textarea rows="2" value={masterForm.note} onChange={e => setMasterForm({...masterForm, note: e.target.value})} className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-100 outline-none resize-none" />
+                </div>
+                <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
+                  <button type="button" onClick={() => setShowMasterModal(false)} className="px-6 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Hủy</button>
+                  <button type="submit" disabled={saving} className="px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-md">Lưu dữ liệu</button>
+                </div>
+              </form>
+           </div>
+        </div>
+      )}
 
       {/* Modal View Detail */}
       {showDetailModal && selectedSeason && (
@@ -805,162 +803,6 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
             <div className="mt-4 pt-4 border-t border-slate-100 shrink-0">
               <button onClick={() => setShowHarvestSummaryModal(false)} className="w-full py-3.5 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">Đóng tổng kết</button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Add/Edit (Technician Only) */}
-      {showCreateModal && isTechnician && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowCreateModal(false)}>
-          <div className="bg-white max-w-3xl w-full p-0 rounded-[24px] shadow-2xl flex flex-col max-h-[95vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>
-
-            <div className="flex justify-between items-center p-5 sm:p-6 border-b border-slate-100 bg-slate-50/50 shrink-0">
-              <h2 className="text-xl md:text-2xl font-extrabold text-slate-800">
-                {selectedSeason?.season_id ? 'Chỉnh sửa Mùa vụ' : 'Bắt đầu Mùa vụ mới'}
-              </h2>
-              <button type="button" onClick={() => setShowCreateModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-800 text-lg font-bold transition-colors shadow-sm">&times;</button>
-            </div>
-
-            <form onSubmit={handleCreateSubmit} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-5 sm:p-6 flex-1 overflow-y-auto">
-                <div className="flex flex-col gap-6">
-
-                  {/* Khối 1: Ma trận Chọn Ao */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-sm font-bold text-slate-700 flex justify-between items-center">
-                      <span>Chọn Ao nuôi áp dụng <span className="text-rose-500">*</span></span>
-                      {!selectedSeason?.season_id && (
-                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-100 shadow-sm">
-                          Có thể chọn nhiều
-                        </span>
-                      )}
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 bg-slate-50/50 p-4 rounded-2xl border border-slate-200 max-h-[240px] overflow-y-auto shadow-inner">
-                      {(selectedSeason?.season_id ? editPondOptions : eligiblePonds).map(p => {
-                        const isChecked = createForm.pondIds.includes(p.pond_id);
-                        return (
-                          <label
-                            key={p.pond_id}
-                            className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isChecked ? 'bg-emerald-50 border-emerald-500 shadow-md scale-[1.02]' : 'bg-white border-slate-200 hover:border-emerald-300 shadow-sm'}`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              disabled={Boolean(selectedSeason?.season_id)}
-                              onChange={(e) => {
-                                if (e.target.checked) setCreateForm(prev => ({ ...prev, pondIds: [...prev.pondIds, p.pond_id] }));
-                                else setCreateForm(prev => ({ ...prev, pondIds: prev.pondIds.filter(id => id !== p.pond_id) }));
-                              }}
-                              className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 disabled:opacity-50"
-                            />
-                            <div className="flex flex-col flex-1 min-w-0">
-                              <span className={`text-sm font-bold truncate ${isChecked ? 'text-emerald-700' : 'text-slate-700'}`}>{p.pond_code}</span>
-                              <span className="text-[10px] text-slate-500 truncate w-full" title={p.pond_name}>{p.pond_name}</span>
-                            </div>
-                          </label>
-                        )
-                      })}
-                      {!selectedSeason?.season_id && eligiblePonds.length === 0 && (
-                        <div className="col-span-full text-center py-8 flex flex-col items-center justify-center gap-2">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">🔒</div>
-                          <span className="text-slate-500 text-sm font-medium">Tất cả các ao đều đang có vụ nuôi hoặc bị khóa.</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Khối 2: Tên mùa vụ */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-bold text-slate-700">Tên mùa vụ <span className="text-rose-500">*</span></label>
-                    <input value={createForm.seasonName} onChange={(e) => setCreateForm({ ...createForm, seasonName: e.target.value })} required placeholder="VD: Mùa 1/2024" className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:bg-white bg-slate-50 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none transition-all font-medium shadow-sm" />
-                  </div>
-
-                  {/* Khối 3: Cột mốc thời gian */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 bg-sky-50/50 p-4 sm:p-5 rounded-2xl border border-sky-100">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-sm font-bold text-sky-800">Ngày thả giống <span className="text-rose-500">*</span></label>
-                      <input
-                        type="date"
-                        // Tự động tính ngày mai để khóa lịch
-                        min={(() => {
-                          const tmr = new Date();
-                          tmr.setDate(tmr.getDate() + 1);
-                          return `${tmr.getFullYear()}-${String(tmr.getMonth() + 1).padStart(2, '0')}-${String(tmr.getDate()).padStart(2, '0')}`;
-                        })()}
-                        value={createForm.startDate}
-                        onChange={(e) => {
-                          const newStartDate = e.target.value;
-                          let autoHarvestDate = createForm.expectedHarvestDate;
-
-                          if (newStartDate) {
-                            const startObj = new Date(newStartDate);
-                            startObj.setDate(startObj.getDate() + 120);
-                            autoHarvestDate = startObj.toISOString().split('T')[0];
-                          }
-
-                          setCreateForm({
-                            ...createForm,
-                            startDate: newStartDate,
-                            expectedHarvestDate: autoHarvestDate
-                          });
-                        }}
-                        required
-                        className="w-full px-4 py-3 border border-sky-200 rounded-xl focus:bg-white bg-white focus:ring-2 focus:ring-sky-100 focus:border-sky-500 outline-none transition-all font-medium shadow-sm cursor-pointer"
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-sm font-bold text-sky-800">Dự kiến thu hoạch (Tự động tính 120 ngày)</label>
-                      <input
-                        type="date"
-                        // Ngày thu hoạch nhỏ nhất bắt buộc phải sau Ngày thả giống ít nhất 90 ngày
-                        min={(() => {
-                          if (createForm.startDate) {
-                            const startObj = new Date(createForm.startDate);
-                            startObj.setDate(startObj.getDate() + 90); // Cộng thêm ít nhất 90 ngày nuôi
-                            return startObj.toISOString().split('T')[0];
-                          }
-                          // Nếu chưa chọn ngày thả, mặc định min là Ngày mai + 90 ngày
-                          const tmr = new Date();
-                          tmr.setDate(tmr.getDate() + 91);
-                          return `${tmr.getFullYear()}-${String(tmr.getMonth() + 1).padStart(2, '0')}-${String(tmr.getDate()).padStart(2, '0')}`;
-                        })()}
-                        value={createForm.expectedHarvestDate}
-                        onChange={(e) => setCreateForm({ ...createForm, expectedHarvestDate: e.target.value })}
-                        className="w-full px-4 py-3 border border-sky-200 rounded-xl focus:bg-white bg-white focus:ring-2 focus:ring-sky-100 focus:border-sky-500 outline-none transition-all font-medium shadow-sm cursor-pointer"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Khối 4: Sản lượng & Mật độ */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-sm font-bold text-slate-700">Mật độ thả (con/m²) <span className="text-rose-500">*</span></label>
-                      <input type="number" step="0.01" min="0" value={createForm.density} onChange={(e) => setCreateForm({ ...createForm, density: e.target.value })} required placeholder="VD: 120" className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:bg-white bg-slate-50 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none transition-all font-medium shadow-sm" />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-sm font-bold text-slate-700">Số lượng con giống <span className="text-rose-500">*</span></label>
-                      <input type="number" step="1" min="0" value={createForm.seedQuantity} onChange={(e) => setCreateForm({ ...createForm, seedQuantity: e.target.value })} required placeholder="VD: 500000" className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:bg-white bg-slate-50 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none transition-all font-medium shadow-sm" />
-                    </div>
-                  </div>
-
-                  {/* Khối 5: Ghi chú */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-bold text-slate-700">Ghi chú (Tùy chọn)</label>
-                    <textarea rows="3" value={createForm.note} onChange={(e) => setCreateForm({ ...createForm, note: e.target.value })} placeholder="Thông tin bổ sung về mùa vụ này..." className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:bg-white bg-slate-50 focus:ring-2 focus:ring-emerald-100 focus:border-emerald-500 outline-none transition-all font-medium resize-none shadow-sm"></textarea>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="p-5 sm:p-6 border-t border-slate-100 bg-slate-50/50 shrink-0 flex justify-end gap-3">
-                <button type="button" onClick={() => setShowCreateModal(false)} className="px-6 py-3 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors shadow-sm">Hủy bỏ</button>
-                <button type="submit" disabled={saving || createForm.pondIds.length === 0} className="px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 disabled:opacity-50 shadow-md shadow-emerald-500/20 active:scale-95 transition-all">
-                  {saving ? 'Đang xử lý...' : (selectedSeason?.season_id ? 'Lưu thay đổi' : `Kích hoạt vụ mới (${createForm.pondIds.length} ao)`)}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -1042,16 +884,13 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
                 <input 
                   type="date" 
                   required 
-                  // 🌟 NÂNG CẤP CHỐNG LỆCH GIỜ FRONTEND: Tính ngày mai dạng chuỗi YYYY-MM-DD chuẩn đét
                   min={(() => {
                       const tmr = new Date();
                       tmr.setDate(tmr.getDate() + 1);
-                      
                       const yyyy = tmr.getFullYear();
                       const mm = String(tmr.getMonth() + 1).padStart(2, '0');
                       const dd = String(tmr.getDate()).padStart(2, '0');
                       const tmrStr = `${yyyy}-${mm}-${dd}`;
-                      
                       if (selectedSeason?.start_date) {
                           const startD = new Date(selectedSeason.start_date);
                           const startStr = startD.toISOString().split('T')[0];
@@ -1097,25 +936,7 @@ const SeasonsPage = ({ roleLabel = 'Owner' }) => {
         </div>
       )}
 
-      {/* 🌟 1. MODAL HỎI SAU KHI TẠO VỤ */}
-      {showSopConfirmModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={() => setShowSopConfirmModal(false)}>
-          <div className="bg-white max-w-sm w-full p-6 text-center rounded-[24px] shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-inner">⚡</div>
-            <h3 className="text-xl font-extrabold text-slate-800 mb-2">Sinh Lịch trình (SOP)?</h3>
-            <p className="text-slate-600 text-sm mb-6">
-              Hệ thống sẽ tự động lên lịch các công việc tiêu chuẩn (Cho ăn, xử lý nước...). <br />
-              <strong className="text-amber-600">Lưu ý: Nếu vụ đang nuôi, SOP sẽ được tạo bắt đầu từ NGÀY MAI để đảm bảo thời gian chuẩn bị.</strong>
-            </p>
-            <div className="flex flex-col gap-3">
-              <button onClick={() => { setShowSopConfirmModal(false); setShowSopConfigModal(true); }} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-all active:scale-95">Thiết lập SOP ngay</button>
-              <button onClick={() => setShowSopConfirmModal(false)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all">Để tự tạo sau</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🌟 2. MODAL CẤU HÌNH SOP MASTER TEMPLATE */}
+      {/* 🌟 CẤU HÌNH SOP MASTER TEMPLATE */}
       {showSopConfigModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onClick={() => setShowSopConfigModal(false)}>
           <div className="bg-white max-w-4xl w-full p-0 rounded-[24px] shadow-2xl flex flex-col max-h-[95vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>

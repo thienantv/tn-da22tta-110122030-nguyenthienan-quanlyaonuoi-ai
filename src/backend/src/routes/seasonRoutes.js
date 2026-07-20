@@ -25,4 +25,9 @@ router.post('/:seasonId/review-harvest', authorize(['OWNER']), seasonController.
 router.post('/:seasonId/harvest', authorize(['TECHNICIAN', 'OWNER']), seasonController.harvestSeason);
 router.delete('/:seasonId', authorize(['TECHNICIAN', 'OWNER']), seasonController.deleteSeason);
 
+router.get('/master/all', authorize(['OWNER', 'TECHNICIAN']), seasonController.getAllMasterSeasons);
+router.post('/master', authorize(['OWNER']), seasonController.createMasterSeason);
+router.put('/master/:id', authorize(['OWNER']), seasonController.updateMasterSeason);
+router.delete('/master/:id', authorize(['OWNER']), seasonController.deleteMasterSeason);
+
 module.exports = router;

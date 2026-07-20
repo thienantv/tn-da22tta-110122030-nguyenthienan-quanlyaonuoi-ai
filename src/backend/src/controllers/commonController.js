@@ -93,7 +93,7 @@ const seasonController = {
 
   async createSeason(req, res) {
     try {
-      const { pondIds, pondId, pond_id, seasonName, season_name, startDate, start_date, expectedHarvestDate, expectedHarvest, expected_harvest, shrimpType, shrimp_type, quantitySeed, quantity_seed, density, note } = req.body
+      const { pondIds, pondId, pond_id, masterSeasonId, master_season_id, startDate, start_date, expectedHarvestDate, expectedHarvest, expected_harvest, shrimpType, shrimp_type, quantitySeed, quantity_seed, density, note } = req.body
       let targetPondIds = pondIds;
       if (!targetPondIds || !Array.isArray(targetPondIds)) {
         if (pondId || pond_id) targetPondIds = [pondId || pond_id];
@@ -106,8 +106,11 @@ const seasonController = {
         if (!canAccessPond) return;
       }
 
+      const targetMasterSeasonId = masterSeasonId || master_season_id;
+      if (!targetMasterSeasonId) return res.status(400).json({ success: false, message: 'Vui lòng chọn Mùa vụ' });
+
       const createdSeasons = await seasonService.createSeason(
-        targetPondIds, seasonName || season_name, startDate || start_date, expectedHarvestDate || expectedHarvest || expected_harvest,
+        targetPondIds, targetMasterSeasonId, startDate || start_date, expectedHarvestDate || expectedHarvest || expected_harvest,
         shrimpType || shrimp_type || 'Tôm sú', quantitySeed || quantity_seed, density, note || null
       )
 
@@ -290,6 +293,43 @@ const seasonController = {
       res.json({ success: true, message: isApproved ? 'Đã phê duyệt thu hoạch' : 'Đã từ chối thu hoạch' });
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
   },
+
+  // Bổ sung các hàm điều khiển này vào seasonController
+  async getAllMasterSeasons(req, res) {
+    try {
+      const result = await db.query('SELECT * FROM master_seasons WHERE farm_id = $1 ORDER BY created_at DESC', [req.user.farm_id]);
+      res.json({ success: true, data: result.rows });
+    } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  },
+
+  async createMasterSeason(req, res) {
+    try {
+      const { seasonName, planStartDate, planEndDate, note } = req.body;
+      const result = await db.query(
+        'INSERT INTO master_seasons (farm_id, season_name, plan_start_date, plan_end_date, note) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [req.user.farm_id, seasonName, planStartDate, planEndDate, note]
+      );
+      res.json({ success: true, data: result.rows[0] });
+    } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  },
+
+  async updateMasterSeason(req, res) {
+    try {
+      const { seasonName, planStartDate, planEndDate, note } = req.body;
+      const result = await db.query(
+        'UPDATE master_seasons SET season_name = $1, plan_start_date = $2, plan_end_date = $3, note = $4 WHERE master_season_id = $5 AND farm_id = $6 RETURNING *',
+        [seasonName, planStartDate, planEndDate, note, req.params.id, req.user.farm_id]
+      );
+      res.json({ success: true, data: result.rows[0] });
+    } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+  },
+
+  async deleteMasterSeason(req, res) {
+    try {
+      await db.query('DELETE FROM master_seasons WHERE master_season_id = $1 AND farm_id = $2', [req.params.id, req.user.farm_id]);
+      res.json({ success: true, message: 'Deleted successfully' });
+    } catch (error) { res.status(400).json({ success: false, message: 'Đang có ao nuôi sử dụng vụ này, không thể xóa.' }); }
+  }
 }
 
 module.exports = { seasonController }

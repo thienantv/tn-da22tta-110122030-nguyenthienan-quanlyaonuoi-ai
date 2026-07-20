@@ -23,7 +23,9 @@ const taskController = {
       const role = String(req.user.role || '').toUpperCase();
 
       let query = `
-      SELECT t.*, p.pond_name, p.pond_code, s.season_name, tt.type_name,
+      SELECT t.*, p.pond_name, p.pond_code, 
+      ms.season_name, -- 🌟 ĐÃ SỬA: Lấy từ ms (master_seasons) thay vì s (seasons)
+      tt.type_name,
       u_assign.full_name AS creator_name,
       (
         SELECT COALESCE(json_agg(json_build_object(
@@ -56,6 +58,7 @@ const taskController = {
       FROM tasks t
       LEFT JOIN ponds p ON t.pond_id = p.pond_id
       LEFT JOIN seasons s ON t.season_id = s.season_id
+      LEFT JOIN master_seasons ms ON s.master_season_id = ms.master_season_id -- 🌟 ĐÃ SỬA: Thêm JOIN với master_seasons
       LEFT JOIN task_types tt ON t.type_id = tt.type_id
       LEFT JOIN users u_assign ON t.assigned_by = u_assign.user_id
       `;

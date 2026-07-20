@@ -372,15 +372,41 @@ SELECT
 CREATE OR REPLACE VIEW vw_task_overview AS
 SELECT
     t.task_id, t.task_code, t.task_title, tt.type_name AS task_type_name, tt.type_code AS task_type_code,
-    p.pond_name, s.season_name, u_by.full_name AS technician_name, t.start_date, t.due_date, t.status AS task_status,
+    p.pond_name, 
+    ms.season_name, -- 🌟 Đã sửa: Lấy season_name từ bảng master_seasons
+    u_by.full_name AS technician_name, t.start_date, t.due_date, t.status AS task_status,
     COALESCE(tpu.total_amount, 0) AS product_cost_estimated, t.created_at,
     (SELECT STRING_AGG(u_w.full_name, ', ') FROM task_workers tw JOIN users u_w ON tw.worker_id = u_w.user_id WHERE tw.task_id = t.task_id) AS assigned_workers_list
 FROM tasks t
 LEFT JOIN task_types tt ON t.type_id = tt.type_id
 LEFT JOIN ponds p ON t.pond_id = p.pond_id
 LEFT JOIN seasons s ON t.season_id = s.season_id
+LEFT JOIN master_seasons ms ON s.master_season_id = ms.master_season_id -- 🌟 Đã thêm: JOIN với bảng master_seasons
 LEFT JOIN users u_by ON t.assigned_by = u_by.user_id
 LEFT JOIN task_product_usage tpu ON t.task_id = tpu.task_id;
+
+DROP vw_task_overview;
+
+-- 1. Tạo bảng Danh mục Mùa vụ gốc (Master Seasons)
+CREATE TABLE master_seasons (
+    master_season_id BIGSERIAL PRIMARY KEY,
+    farm_id BIGINT REFERENCES farms(farm_id) ON DELETE CASCADE,
+    season_name VARCHAR(150) NOT NULL,
+    plan_start_date DATE,
+    plan_end_date DATE,
+    status VARCHAR(30) DEFAULT 'OPEN', -- OPEN (Đang mở), CLOSED (Đã đóng)
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_master_season_farm UNIQUE (farm_id, season_name)
+);
+
+-- 2. Thêm cột master_season_id vào bảng seasons hiện tại
+ALTER TABLE seasons 
+ADD COLUMN master_season_id BIGINT REFERENCES master_seasons(master_season_id) ON DELETE CASCADE;
+
+-- (Tùy chọn) Xóa cột season_name cũ đi vì bây giờ tên mùa vụ sẽ lấy từ master_seasons
+-- Lưu ý: Nếu bạn có dữ liệu cũ cần giữ lại, hãy cẩn thận bước này hoặc viết script migrate data trước.
+ALTER TABLE seasons DROP COLUMN season_name CASCADE;
 
 -- =========================================================================
 -- 11. THÊM DỮ LIỆU KHỞI TẠO (Seeding)

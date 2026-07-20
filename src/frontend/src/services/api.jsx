@@ -192,6 +192,18 @@ export const seasonService = {
   requestHarvest: (seasonId, data) => apiClient.post(`/seasons/${seasonId}/request-harvest`, data),
   
   reviewHarvestRequest: (seasonId, data) => apiClient.post(`/seasons/${seasonId}/review-harvest`, data),
+
+  getMasterSeasons: () => 
+    apiClient.get('/seasons/master/all'),
+
+  createMasterSeason: (data) => 
+    apiClient.post('/seasons/master', data),
+
+  updateMasterSeason: (id, data) => 
+    apiClient.put(`/seasons/master/${id}`, data),
+
+  deleteMasterSeason: (id) => 
+    apiClient.delete(`/seasons/master/${id}`),
 };
 
 // =============== CULTIVATION LOG ENDPOINTS ===============
