@@ -589,14 +589,14 @@ const PondsPage = ({ roleLabel = 'Owner' }) => {
                                 </button>
                               )}
 
-                              {status === 'CHUAN_BI_NUOI' && (
+                              {/* {status === 'CHUAN_BI_NUOI' && (
                                 <button 
                                   className="w-full py-1.5 px-3 rounded-lg bg-violet-50 text-violet-600 border border-violet-200 hover:bg-violet-100 font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-1"
                                   onClick={() => window.alert('Vui lòng vào trang Quản lý Mùa Vụ để bấm Xác nhận Thả giống.')}
                                 >
                                   <span>🦐</span> Xuống giống
                                 </button>
-                              )}
+                              )} */}
 
                               {status === 'DANG_NUOI' && (
                                 <button 
